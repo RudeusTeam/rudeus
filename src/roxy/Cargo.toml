@@ -6,3 +6,10 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+derive_builder.workspace = true
+rocksdb.workspace = true
+snafu.workspace = true
+strum.workspace = true
+parking_lot.workspace = true
+
+common-telemetry.workspace = true

@@ -17,7 +17,9 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_error::ErrorLayer;
 pub use tracing_log::log::*;
 use tracing_log::LogTracer;
-use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, Registry};
+use tracing_subscriber::fmt::Layer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::Registry;
 
 #[derive(Debug, Builder)]
 pub struct LoggingOption {

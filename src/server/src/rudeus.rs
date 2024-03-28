@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use bytes::{Bytes, BytesMut};
-use common_telemetry::log::{self, debug, LoggingOptionBuilder};
-use redis_protocol::resp2::{decode::decode, encode::encode_bytes, types::Frame};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use common_telemetry::log::{self, debug, info, LoggingOptionBuilder};
+use redis_protocol::resp2::decode::decode;
+use redis_protocol::resp2::encode::encode_bytes;
+use redis_protocol::resp2::types::Frame;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() {
@@ -27,6 +27,7 @@ async fn main() {
         .build()
         .unwrap();
     let _log_workers = log::init(&logging_option);
+
     info!("Rudeus listening on: {}", "127.0.0.1:6379");
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
     loop {

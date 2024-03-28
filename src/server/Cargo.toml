@@ -15,3 +15,4 @@ redis-protocol.workspace = true
 snafu.workspace = true
 bytes.workspace = true
 common-telemetry.workspace = true
+roxy.workspace = true
