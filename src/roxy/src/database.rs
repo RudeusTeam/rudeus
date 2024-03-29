@@ -12,6 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod database;
-pub mod error;
-pub mod storage;
+use crate::storage::StorageRef;
+
+/// Database is a wrapper of storage engine, it provides
+/// some  common operations for redis commands.
+pub struct Database {
+    storage: StorageRef,
+    namespace: String,
+}
+
+impl Database {
+    pub fn new(storage: StorageRef, namespace: String) -> Self {
+        Self { storage, namespace }
+    }
+}
