@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bytes::Bytes;
 use snafu::{Location, Snafu};
 
 #[derive(Debug, Snafu)]
@@ -42,6 +43,21 @@ pub enum Error {
 
     #[snafu(display("Fail to list column family"))]
     ListColumnFamily { source: rocksdb::Error },
+
+    #[snafu(display("Invalid metadata input"))]
+    InvalidMetadataInput { source: binrw::Error },
+
+    #[snafu(display("Fail to encode metadata"))]
+    EncodeMetadata { source: binrw::Error },
+
+    #[snafu(display("key was expired"))]
+    KeyExpired,
+
+    #[snafu(display("Datatype mismatched"))]
+    DatatypeMismatched,
+
+    #[snafu(display("No element found for non-emptyable datatype"))]
+    NoElementFound,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

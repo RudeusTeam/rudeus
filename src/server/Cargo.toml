@@ -10,9 +10,11 @@ name = "rudeus"
 path = "src/rudeus.rs"
 
 [dependencies]
-tokio.workspace = true
-redis-protocol.workspace = true
-snafu.workspace = true
 bytes.workspace = true
-common-telemetry.workspace = true
+redis-protocol.workspace = true
 roxy.workspace = true
+snafu.workspace = true
+tokio.workspace = true
+
+common-base.workspace = true
+common-telemetry.workspace = true

@@ -12,11 +12,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(test)]
-extern crate test;
-
-pub mod database;
-pub mod datatypes;
-pub mod error;
-pub mod metadata;
-pub mod storage;
+pub mod string;

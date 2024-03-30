@@ -1,15 +1,18 @@
 [package]
-name = "roxy"
+name              = "roxy"
 version.workspace = true
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+binrw.workspace          = true
+bytes.workspace          = true
 derive_builder.workspace = true
-rocksdb.workspace = true
-snafu.workspace = true
-strum.workspace = true
-parking_lot.workspace = true
+parking_lot.workspace    = true
+rocksdb.workspace        = true
+snafu.workspace          = true
+strum.workspace          = true
 
+common-base.workspace      = true
 common-telemetry.workspace = true

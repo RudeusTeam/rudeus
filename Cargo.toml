@@ -4,20 +4,23 @@ edition = "2021"
 license = "Apache-2.0"
 
 [workspace]
-members = ["src/common/telemetry", "src/roxy", "src/server"]
+members  = ["src/common/base", "src/common/telemetry", "src/roxy", "src/server"]
 resolver = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
-tokio = { version = "1", features = ["full"] }
-redis-protocol = "4.1"
-snafu = "0.8"
+binrw          = "0.13"
+bytes          = { version = "1.6", features = ["serde"] }
 derive_builder = "0.20"
-bytes = "1.6"
-rocksdb = "0.22"
-strum = { version = "0.26", features = ["derive"]}
-parking_lot = "0.12"
+parking_lot    = "0.12"
+redis-protocol = "4.1"
+rocksdb        = "0.22"
+serde          = { version = "1.0", features = ["derive"] }
+snafu          = "0.8"
+strum          = { version = "0.26", features = ["derive"] }
+tokio          = { version = "1", features = ["full"] }
 
 ## workspace members
+common-base      = { path = "src/common/base" }
 common-telemetry = { path = "src/common/telemetry" }
-roxy = { path = "src/roxy" }
+roxy             = { path = "src/roxy" }
