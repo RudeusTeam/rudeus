@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 
+use common_base::bytes::Bytes;
 use common_telemetry::log::info;
 use derive_builder::Builder;
 use parking_lot::RwLock;
-use rocksdb::DB;
+use rocksdb::{ReadOptions, WriteBatch, WriteOptions, DB};
 use snafu::ResultExt;
-use strum::{Display, VariantArray};
+use strum::VariantArray;
 
 use crate::error::{
     CreateColumnFamilySnafu, InitializeStorageSnafu, ListColumnFamilySnafu, OpenRocksDBSnafu,
-    Result,
+    Result, WriteToRocksDBSnafu,
 };
 
 #[derive(Builder, Debug, Clone)]
@@ -33,22 +35,28 @@ pub struct RocksDBConfig {
 #[derive(Builder, Debug)]
 pub struct StorageConfig {
     dbpath: String,
+    #[builder(default)]
     secondary_path: String,
+    #[builder(default)]
     _open_mode: OpenMode,
+    #[builder(default)]
     _backup_path: Option<String>,
     rocks_db: RocksDBConfig,
 }
 
-#[derive(Debug, Clone, Copy, Default, Display, VariantArray, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, VariantArray, strum::IntoStaticStr, strum::Display,
+)]
 #[strum(serialize_all = "lowercase")]
-pub enum ColumnFamily {
+pub enum ColumnFamilyId {
     #[default]
     Default,
     Metadata,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OpenMode {
+    #[default]
     Default,
     ReadOnly,
     SecondaryInstance,
@@ -57,37 +65,28 @@ pub enum OpenMode {
 pub type StorageRef = Arc<Storage>;
 
 pub struct Storage {
-    inner: RwLock<Inner>,
-}
-
-impl Storage {
-    pub fn try_new(config: StorageConfig) -> Result<Self> {
-        Ok(Self {
-            inner: RwLock::new(Inner::try_new(config)?),
-        })
-    }
-    pub fn open(&mut self, mode: OpenMode) -> Result<()> {
-        self.inner.write().open(mode)
-    }
-}
-
-struct Inner {
     // TODO: use MaybeUninit to avoid the need for Option in the future
-    db: Option<rocksdb::DB>,
+    db: MaybeUninit<rocksdb::DB>,
     _env: rocksdb::Env,
     config: StorageConfig,
     db_closing: bool,
+
+    /// This RwLock is used to allow multiple readers or one writer who may close the database
+    db_lock: RwLock<()>,
+    // _phantom: std::marker::PhantomData<&'db ()>,
 }
 
 // mainly come from KVRocks
-impl Inner {
-    fn try_new(config: StorageConfig) -> Result<Self> {
+impl Storage {
+    pub fn try_new(config: StorageConfig) -> Result<Self> {
         let env = rocksdb::Env::new().context(InitializeStorageSnafu)?;
         Ok(Self {
-            db: None,
+            db: MaybeUninit::uninit(),
+            db_lock: RwLock::new(()),
             db_closing: true,
             _env: env,
             config,
+            // _phantom: std::marker::PhantomData,
         })
     }
 
@@ -111,7 +110,7 @@ impl Inner {
 
     fn create_column_families(&self, options: &rocksdb::Options) -> Result<()> {
         let cf_options = options.clone();
-        let mut db = match DB::open(options, &self.config.dbpath) {
+        let db = match DB::open(options, &self.config.dbpath) {
             // TODO(j0hn50n133): This is a hack to ignore the error when the column families are not opened
             // remove this hack in the future
             // Rocksdb could not be opened if we don't list all column families
@@ -123,12 +122,12 @@ impl Inner {
             dbpath: self.config.dbpath.clone(),
         })?;
 
-        ColumnFamily::VARIANTS
+        ColumnFamilyId::VARIANTS
             .iter()
-            .filter(|&&cf| cf != ColumnFamily::Default)
+            .filter(|&&cf| cf != ColumnFamilyId::Default)
             .try_for_each(|&cf| {
-                let cf_name = cf.to_string();
-                db.create_cf(&cf_name, &cf_options)
+                let cf_name: &str = cf.into();
+                db.create_cf(cf_name, &cf_options)
                     .context(CreateColumnFamilySnafu {
                         column_family: cf_name,
                     })
@@ -136,7 +135,9 @@ impl Inner {
         Ok(())
     }
 
-    fn open(&mut self, mode: OpenMode) -> Result<()> {
+    pub fn open(&mut self, mode: OpenMode) -> Result<()> {
+        let _guard = self.db_lock.write();
+
         self.db_closing = false;
         let options = Self::init_rocksdb_options();
 
@@ -153,15 +154,18 @@ impl Inner {
         let subkey_opts = options.clone();
 
         let column_families = [
-            rocksdb::ColumnFamilyDescriptor::new(ColumnFamily::Default.to_string(), subkey_opts),
-            rocksdb::ColumnFamilyDescriptor::new(ColumnFamily::Metadata.to_string(), metadata_opts),
+            rocksdb::ColumnFamilyDescriptor::new(ColumnFamilyId::Default.to_string(), subkey_opts),
+            rocksdb::ColumnFamilyDescriptor::new(
+                ColumnFamilyId::Metadata.to_string(),
+                metadata_opts,
+            ),
         ];
 
         let _old_column_families =
             rocksdb::DB::list_cf(&options, &self.config.dbpath).context(ListColumnFamilySnafu)?;
 
         let start = std::time::Instant::now();
-        self.db = Some(
+        self.db.write(
             match mode {
                 OpenMode::Default => DB::open_cf_descriptors(
                     &options,
@@ -196,16 +200,44 @@ impl Inner {
         Ok(())
     }
 
-    fn close(&mut self) {
-        if let Some(db) = self.db.take() {
-            let _ = db.flush_wal(false);
-            db.cancel_all_background_work(true);
-        };
+    pub fn get_write_batch(&self) -> rocksdb::WriteBatch {
+        rocksdb::WriteBatch::default()
+    }
+
+    pub fn close(&mut self) {
+        let _guard = self.db_lock.write();
+        let db = self.db();
+        let _ = db.flush_wal(false);
+        db.cancel_all_background_work(true);
         self.db_closing = true;
+        unsafe {
+            self.db.assume_init_drop();
+        }
+    }
+
+    pub fn column_family_handler(&self, cf: ColumnFamilyId) -> rocksdb::ColumnFamilyRef {
+        self.db().cf_handle(cf.into()).unwrap()
+    }
+
+    pub fn get(&self, opts: &ReadOptions, cf: ColumnFamilyId, key: &[u8]) -> Result<Option<Bytes>> {
+        self.db()
+            .get_cf_opt(&self.column_family_handler(cf), key, opts)
+            .context(WriteToRocksDBSnafu)
+            .map(|op| op.map(|v| v.into()))
+    }
+
+    pub fn write(&self, write_options: &WriteOptions, updates: WriteBatch) -> Result<()> {
+        self.db()
+            .write_opt(updates, write_options)
+            .context(WriteToRocksDBSnafu)
+    }
+
+    pub(crate) fn db(&self) -> &DB {
+        unsafe { self.db.assume_init_ref() }
     }
 }
 
-impl Drop for Inner {
+impl Drop for Storage {
     fn drop(&mut self) {
         self.close()
     }
@@ -226,7 +258,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let mut storage = Inner::try_new(StorageConfig {
+        let mut storage = Storage::try_new(StorageConfig {
             dbpath: "test".to_string(),
             secondary_path: "test/secondary".to_string(),
             _open_mode: OpenMode::Default,
@@ -235,5 +267,11 @@ mod tests {
         })
         .unwrap();
         storage.open(OpenMode::Default).unwrap();
+    }
+
+    #[test]
+    fn test_cf_name() {
+        let d = ColumnFamilyId::Default;
+        assert_eq!(d.to_string(), "default");
     }
 }

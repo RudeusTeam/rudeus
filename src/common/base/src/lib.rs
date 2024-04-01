@@ -13,4 +13,5 @@
 // limitations under the License.
 
 pub mod bytes;
+pub mod lock_pool;
 pub mod timestamp;

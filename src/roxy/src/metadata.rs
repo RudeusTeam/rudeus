@@ -14,6 +14,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use binrw::io::NoSeek;
 use binrw::{binrw, BinRead, BinWrite};
 use bytes::{BufMut, BytesMut};
 use common_base::bytes::{Bytes, StringBytes};
@@ -22,6 +23,7 @@ use snafu::ResultExt;
 use strum::{Display, VariantArray};
 
 use crate::error::{EncodeMetadataSnafu, InvalidMetadataInputSnafu, Result};
+use crate::storage::ColumnFamilyId;
 
 static VERSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 const VERSION_COUNTER_BITS: usize = 11;
@@ -59,6 +61,15 @@ impl RedisType {
 impl From<RedisType> for u8 {
     fn from(val: RedisType) -> Self {
         val as u8
+    }
+}
+
+impl From<RedisType> for ColumnFamilyId {
+    fn from(value: RedisType) -> Self {
+        match value {
+            RedisType::String => ColumnFamilyId::Metadata,
+            _ => todo!(),
+        }
     }
 }
 
@@ -154,9 +165,10 @@ impl Metadata {
 
     pub fn encode_into<W>(&self, writer: &mut W) -> Result<()>
     where
-        W: std::io::Write + std::io::Seek,
+        W: std::io::Write,
     {
-        self.write(writer).context(EncodeMetadataSnafu)
+        self.write(&mut NoSeek::new(writer))
+            .context(EncodeMetadataSnafu)
     }
 
     pub fn datatype(&self) -> RedisType {
@@ -173,6 +185,10 @@ impl Metadata {
 
     pub fn expire(&self) -> u64 {
         self.expire
+    }
+
+    pub fn set_expire(&mut self, expire: u64) {
+        self.expire = expire;
     }
 
     pub fn expired_at(&self, expire_ts: u64) -> bool {
@@ -194,10 +210,10 @@ impl Metadata {
     }
 }
 
-pub fn encode_namespace_key(namespace: StringBytes, user_key: Bytes) -> Bytes {
+pub fn encode_namespace_key(namespace: Bytes, user_key: Bytes) -> Bytes {
     let mut buf = BytesMut::with_capacity(1 + namespace.len() + user_key.len());
     buf.put_u8(namespace.len() as u8);
-    buf.put_slice(namespace.as_utf8().as_bytes());
+    buf.put_slice(namespace.as_ref());
     buf.put_slice(user_key.as_ref());
     buf.freeze().into()
 }
@@ -207,14 +223,13 @@ mod tests {
 
     use std::io::Cursor;
 
-    use binrw::io::NoSeek;
     use bytes::Buf;
 
     use super::*;
 
     #[test]
     fn test_encode_namespace_key() {
-        let namespace: StringBytes = "namespace".into();
+        let namespace: Bytes = b"namespace"[..].into();
         let user_key: Bytes = b"user_key"[..].into();
         let encoded_key = encode_namespace_key(namespace.clone(), user_key.clone());
         assert_eq!(encoded_key.len(), 1 + namespace.len() + user_key.len());

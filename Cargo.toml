@@ -14,7 +14,7 @@ bytes          = { version = "1.6", features = ["serde"] }
 derive_builder = "0.20"
 parking_lot    = "0.12"
 redis-protocol = "4.1"
-rocksdb        = "0.22"
+rocksdb        = { version = "0.22", features = ["multi-threaded-cf"] }
 serde          = { version = "1.0", features = ["derive"] }
 snafu          = "0.8"
 strum          = { version = "0.26", features = ["derive"] }

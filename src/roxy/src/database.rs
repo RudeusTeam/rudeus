@@ -12,26 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io::Seek;
-
-use common_base::bytes::{Bytes, StringBytes};
+use common_base::bytes::Bytes;
+use common_base::lock_pool::{self, LockPool};
+use rocksdb::{AsColumnFamilyRef, WriteBatch, WriteOptions};
 
 use crate::error::{DatatypeMismatchedSnafu, KeyExpiredSnafu, Result};
 use crate::metadata::{self, Metadata, RedisType};
-use crate::storage::StorageRef;
+use crate::storage::{ColumnFamilyId, StorageRef};
 
 pub trait Database {
-    fn encode_namespace_prefix(&self, user_key: Bytes) -> Bytes;
+    /// Lock type for a key
+    type KeyLock;
+    /// Guard type for a key lock
+    type KeyLockGuard<'a>
+    where
+        Self: 'a;
 
-    /// Get metadata of a `ns_key`.
+    fn encode_namespace_prefix(&self, user_key: Bytes) -> Bytes {
+        metadata::encode_namespace_key(self.namespace(), user_key)
+    }
+
+    fn namespace(&self) -> Bytes;
+
+    /// [`get_metadata`] is a helper function to get metadata of a `ns_key` from the database. It will the "raw metadata"
+    /// from underlying storage, and then parse the raw metadata
     fn get_metadata(
         &self,
         options: GetOptions,
         types: &[RedisType],
         ns_key: Bytes,
-    ) -> Result<metadata::Metadata> {
+    ) -> Result<Option<metadata::Metadata>> {
         self.get_metadata_and_rest(options, types, ns_key)
-            .map(|(meta, _)| meta)
+            .map(|op| op.map(|(meta, _)| meta))
     }
 
     /// Get metadata and rest part of value of a `ns_key`.
@@ -40,18 +52,27 @@ pub trait Database {
         options: GetOptions,
         types: &[RedisType],
         ns_key: Bytes,
-    ) -> Result<(metadata::Metadata, Bytes)> {
+    ) -> Result<Option<(metadata::Metadata, Bytes)>> {
         let raw_metadata = self.get_raw_metadata(options, ns_key)?;
-        self.parse_metadata(types, raw_metadata)
+        if let Some(raw_metadata) = raw_metadata {
+            Ok(Some(self.parse_metadata(types, raw_metadata)?))
+        } else {
+            Ok(None)
+        }
     }
 
-    fn get_raw_metadata(&self, options: GetOptions, ns_key: Bytes) -> Result<Bytes>;
+    /// [`get_raw_metadata`] is a helper function to get the
+    /// "raw metadata" from the storage engine without parsing
+    /// it to [`Metadata`] type.
+    ///
+    fn get_raw_metadata(&self, options: GetOptions, ns_key: Bytes) -> Result<Option<Bytes>>;
 
+    /// [`parse_metadata`] parse the [`Metadata`] from input bytes and return
+    /// the rest part of the input bytes.
     fn parse_metadata(&self, types: &[RedisType], input: Bytes) -> Result<(Metadata, Bytes)> {
         let mut reader = input.reader();
         let metadata = Metadata::decode_from(&mut reader)?;
-        let rest_offset = reader.stream_position().unwrap() as usize;
-        let rest = reader.into_inner().slice(rest_offset..);
+        let rest = reader.into_inner();
         if metadata.expired() {
             return KeyExpiredSnafu.fail();
         }
@@ -65,36 +86,82 @@ pub trait Database {
         }
         Ok((metadata, rest))
     }
+
+    fn lock_key(&self, key: Bytes) -> Self::KeyLockGuard<'_>;
+
+    fn get_write_batch(&self) -> WriteBatch;
+
+    fn get_cf_ref(&self) -> impl AsColumnFamilyRef;
+
+    fn write(&self, opts: &WriteOptions, batch: WriteBatch) -> Result<()>;
 }
 
-/// Database is a wrapper of storage engine, it provides
+/// [`Roxy`] is a wrapper of storage engine, it provides
 /// some  common operations for redis commands.
 pub struct Roxy {
     storage: StorageRef,
-    namespace: StringBytes,
+    namespace: Bytes,
+    column_family_id: ColumnFamilyId,
+    lock_pool: LockPool,
 }
 
 impl Roxy {
-    pub fn new(storage: StorageRef, namespace: StringBytes) -> Self {
-        Self { storage, namespace }
+    pub fn new(storage: StorageRef, namespace: Bytes, redis_type: RedisType) -> Self {
+        Self {
+            storage,
+            namespace,
+            column_family_id: redis_type.into(),
+            lock_pool: LockPool::new(16),
+        }
+    }
+    pub fn get_cf_id(&self) -> ColumnFamilyId {
+        self.column_family_id
     }
 }
 
 impl Database for Roxy {
-    fn encode_namespace_prefix(&self, user_key: Bytes) -> Bytes {
-        metadata::encode_namespace_key(self.namespace.clone(), user_key)
+    type KeyLock = lock_pool::Mutex;
+
+    type KeyLockGuard<'a> = lock_pool::MutexGuard<'a>;
+
+    fn get_raw_metadata(&self, options: GetOptions, ns_key: Bytes) -> Result<Option<Bytes>> {
+        let mut opts = rocksdb::ReadOptions::default();
+        if options.with_snapshot {
+            opts.set_snapshot(&self.storage.db().snapshot());
+        }
+        self.storage.get(&opts, self.column_family_id, &ns_key)
     }
 
-    fn get_raw_metadata(&self, options: GetOptions, ns_key: Bytes) -> Result<Bytes> {
-        todo!()
+    fn lock_key(&self, key: Bytes) -> Self::KeyLockGuard<'_> {
+        self.lock_pool.lock(key)
+    }
+
+    fn get_write_batch(&self) -> WriteBatch {
+        self.storage.get_write_batch()
+    }
+
+    fn namespace(&self) -> Bytes {
+        self.namespace.clone()
+    }
+
+    fn get_cf_ref(&self) -> impl AsColumnFamilyRef {
+        self.storage.column_family_handler(self.column_family_id)
+    }
+
+    fn write(&self, opts: &WriteOptions, updates: WriteBatch) -> Result<()> {
+        self.storage.write(opts, updates)
     }
 }
 
 #[derive(Default)]
-pub struct GetOptions;
+pub struct GetOptions {
+    with_snapshot: bool,
+}
 
 impl GetOptions {
     pub fn new() -> Self {
-        Self
+        Self {
+            with_snapshot: false,
+        }
     }
 }

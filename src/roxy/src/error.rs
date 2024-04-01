@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bytes::Bytes;
 use snafu::{Location, Snafu};
 
 #[derive(Debug, Snafu)]
@@ -50,6 +49,9 @@ pub enum Error {
     #[snafu(display("Fail to encode metadata"))]
     EncodeMetadata { source: binrw::Error },
 
+    #[snafu(display("Fail to encode string value into raw value."))]
+    EncodeStringValue { source: std::io::Error },
+
     #[snafu(display("key was expired"))]
     KeyExpired,
 
@@ -58,6 +60,10 @@ pub enum Error {
 
     #[snafu(display("No element found for non-emptyable datatype"))]
     NoElementFound,
+    #[snafu(display("Fail to write to rocksdb"))]
+    WriteToRocksDB { source: rocksdb::Error },
+    #[snafu(display("Fail to get from rocksdb"))]
+    GetFromRocksDB { source: rocksdb::Error },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

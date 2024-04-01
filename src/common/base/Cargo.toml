@@ -1,10 +1,11 @@
 [package]
-name = "common-base"
+name              = "common-base"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-binrw.workspace = true
-bytes.workspace = true
-serde.workspace = true
+binrw.workspace       = true
+bytes.workspace       = true
+parking_lot.workspace = true
+serde.workspace       = true
