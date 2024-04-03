@@ -205,12 +205,15 @@ where
 mod tests {
     use std::sync::Arc;
 
+    use common_telemetry::log::init_ut_logging;
+
     use super::*;
     use crate::database::Roxy;
     use crate::storage::setup_test_storage_for_ut;
 
     #[test]
     fn test_set_and_get() {
+        init_ut_logging();
         let storage = setup_test_storage_for_ut();
         let storage = Arc::new(storage);
         let redis_string_db = RedisString::new(Roxy::new(

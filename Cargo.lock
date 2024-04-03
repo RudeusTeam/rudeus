@@ -196,6 +196,7 @@ name = "common-telemetry"
 version = "0.0.1"
 dependencies = [
  "derive_builder",
+ "once_cell",
  "tracing",
  "tracing-appender",
  "tracing-error",

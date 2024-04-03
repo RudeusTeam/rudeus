@@ -12,6 +12,7 @@ resolver = "2"
 binrw          = "0.13"
 bytes          = { version = "1.6", features = ["serde"] }
 derive_builder = "0.20"
+once_cell      = "1.19"
 parking_lot    = "0.12"
 redis-protocol = "4.1"
 rocksdb        = { version = "0.22", features = ["multi-threaded-cf"] }

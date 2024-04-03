@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::{Arc, Mutex, Once};
+
 use derive_builder::Builder;
+use once_cell::sync::Lazy;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_error::ErrorLayer;
 pub use tracing_log::log::*;
@@ -43,4 +46,20 @@ pub fn init(opts: &LoggingOption) -> Vec<WorkerGuard> {
     tracing::subscriber::set_global_default(subscriber)
         .expect("error setting global tracing subscriber");
     guards
+}
+
+static GLOBAL_UT_LOG_GUARDS: Lazy<Arc<Mutex<Option<Vec<WorkerGuard>>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(None)));
+
+/// Initialize logging for unit test
+pub fn init_ut_logging() {
+    static START: Once = Once::new();
+    START.call_once(|| {
+        let mut g = GLOBAL_UT_LOG_GUARDS.lock().unwrap();
+        let opts = LoggingOptionBuilder::default()
+            .append_stdout(true)
+            .build()
+            .unwrap();
+        *g = Some(init(&opts))
+    });
 }
