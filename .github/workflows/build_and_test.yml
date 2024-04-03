@@ -1,4 +1,4 @@
-name: Rust
+name: Rust Build and Test
 
 on:
   push:
@@ -18,7 +18,8 @@ jobs:
         toolchain:
           - nightly
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
     - name: Build
       run: cargo build --verbose
     - name: Run tests
