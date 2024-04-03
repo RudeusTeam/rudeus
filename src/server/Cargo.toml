@@ -1,5 +1,5 @@
 [package]
-name = "server"
+name              = "server"
 version.workspace = true
 edition.workspace = true
 
@@ -10,11 +10,13 @@ name = "rudeus"
 path = "src/rudeus.rs"
 
 [dependencies]
-bytes.workspace = true
+bytes.workspace          = true
+futures.workspace        = true
 redis-protocol.workspace = true
-roxy.workspace = true
-snafu.workspace = true
-tokio.workspace = true
+roxy.workspace           = true
+snafu.workspace          = true
+tokio-util.workspace     = true
+tokio.workspace          = true
 
-common-base.workspace = true
+common-base.workspace      = true
 common-telemetry.workspace = true

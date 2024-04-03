@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bytes::{Bytes, BytesMut};
-use common_telemetry::log::{self, debug, info, LoggingOptionBuilder};
-use redis_protocol::resp2::decode::decode;
-use redis_protocol::resp2::encode::encode_bytes;
-use redis_protocol::resp2::types::Frame;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use bytes::Bytes;
+use common_telemetry::log::{self, info, LoggingOptionBuilder};
+use futures::{SinkExt, StreamExt as _};
+use redis_protocol::codec::Resp3;
+use redis_protocol::resp3::types::BytesFrame;
+use redis_protocol::tokio_util::codec::Framed;
+use tokio::net::{TcpListener, TcpStream};
+use tokio_util::codec::Decoder;
 
 #[tokio::main]
 async fn main() {
     let logging_option = LoggingOptionBuilder::default()
         .append_stdout(true)
+        .level(Some("debug".to_owned()))
         .build()
         .unwrap();
     let _log_workers = log::init(&logging_option);
@@ -31,26 +33,26 @@ async fn main() {
     info!("Rudeus listening on: {}", "127.0.0.1:6379");
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
     loop {
-        let (socket, _) = listener.accept().await.unwrap();
-        tokio::spawn(async { process(socket).await });
+        let framed = listener
+            .accept()
+            .await
+            .map(|(socket, _)| Resp3::default().framed(socket))
+            .unwrap();
+        tokio::spawn(async { process(framed).await });
     }
 }
 
-async fn process(mut socket: tokio::net::TcpStream) {
-    let mut buf = BytesMut::with_capacity(1024);
-    while (socket.read_buf(&mut buf).await).is_ok() {
-        let b = buf.freeze();
-        let (frame, _consumed) = match decode(&b) {
-            Ok(Some((f, c))) => (f, c),
-            Ok(None) => panic!("Incomplete frame"),
-            Err(_) => todo!(),
+async fn process(framed: Framed<TcpStream, Resp3>) {
+    let (mut writer, mut reader) = framed.split();
+    while let Some(frame) = reader.next().await {
+        let frame = frame.unwrap();
+        info!("Received: {:?}", frame);
+        let response = BytesFrame::SimpleString {
+            data: Bytes::from_static(b"OK"),
+            attributes: None,
         };
-        debug!("Frame: {:?}", frame);
-        buf = BytesMut::with_capacity(1024);
-        let mut response = BytesMut::with_capacity(1024);
-        let _ = encode_bytes(&mut response, &Frame::SimpleString(Bytes::from(&b"OK"[..])));
-        let _ = socket.write(&response.freeze()[..]).await;
+        writer.send(response).await.unwrap();
     }
-    debug!("Received: {:?}", buf);
-    debug!("Processing socket");
+
+    // Rest of the code...
 }

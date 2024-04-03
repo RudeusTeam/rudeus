@@ -206,12 +206,9 @@ dependencies = [
 
 [[package]]
 name = "cookie-factory"
-version = "0.3.3"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9885fa71e26b8ab7855e2ec7cae6e9b380edff76cd052e07c683a0319d51b3a2"
-dependencies = [
- "futures",
-]
+checksum = "396de984970346b0d9e93d1415082923c679e5ae5c3ee3dcbd104f5610af126b"
 
 [[package]]
 name = "crc16"
@@ -738,9 +735,9 @@ dependencies = [
 
 [[package]]
 name = "redis-protocol"
-version = "4.1.0"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c31deddf734dc0a39d3112e73490e88b61a05e83e074d211f348404cee4d2c6"
+checksum = "7d30496c7ef712556a132b322c57239bea229c76d8508b1794da879888ac93ee"
 dependencies = [
  "bytes",
  "bytes-utils",
@@ -748,6 +745,7 @@ dependencies = [
  "crc16",
  "log",
  "nom",
+ "tokio-util",
 ]
 
 [[package]]
@@ -893,10 +891,12 @@ dependencies = [
  "bytes",
  "common-base",
  "common-telemetry",
+ "futures",
  "redis-protocol",
  "roxy",
  "snafu",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1120,6 +1120,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.55",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5419f34732d9eb6ee4c3578b7989078579b7f039cbbb9ca2c4da015749371e15"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "pin-project-lite",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

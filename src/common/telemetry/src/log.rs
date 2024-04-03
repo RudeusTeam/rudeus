@@ -22,25 +22,32 @@ pub use tracing_log::log::*;
 use tracing_log::LogTracer;
 use tracing_subscriber::fmt::Layer;
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::Registry;
+use tracing_subscriber::{filter, Registry};
 
 #[derive(Debug, Builder)]
 pub struct LoggingOption {
     append_stdout: bool,
+    #[builder(default)]
+    level: Option<String>,
 }
+const DEFAULT_LOG_TARGETS: &str = "info";
 
 pub fn init(opts: &LoggingOption) -> Vec<WorkerGuard> {
     let mut guards = vec![];
+    let level_str = opts.level.as_deref().unwrap_or(DEFAULT_LOG_TARGETS);
+    let filters: filter::Targets = level_str.parse().expect("Error parsing log level");
     LogTracer::init().expect("log tracer must be valid");
+
     let stdout_logging_layer = if opts.append_stdout {
         let (stdout_writer, stdout_guard) = tracing_appender::non_blocking(std::io::stdout());
         guards.push(stdout_guard);
-
         Some(Layer::new().with_writer(stdout_writer).with_ansi(true))
     } else {
         None
     };
+
     let subscriber = Registry::default()
+        .with(filters)
         .with(stdout_logging_layer)
         .with(ErrorLayer::default());
     tracing::subscriber::set_global_default(subscriber)
