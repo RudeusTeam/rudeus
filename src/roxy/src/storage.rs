@@ -30,8 +30,10 @@ use crate::error::{
 
 #[derive(Builder, Debug, Clone)]
 pub struct RocksDBConfig {
+    #[builder(default = "4096")]
     block_size: usize,
 }
+
 #[derive(Builder, Debug)]
 pub struct StorageConfig {
     dbpath: String,
@@ -86,11 +88,10 @@ impl Storage {
             db_closing: true,
             _env: env,
             config,
-            // _phantom: std::marker::PhantomData,
         })
     }
 
-    fn init_rocksdb_options() -> rocksdb::Options {
+    fn init_rocksdb_options(&self) -> rocksdb::Options {
         let mut options = rocksdb::Options::default();
         options.create_if_missing(true);
         options
@@ -100,7 +101,9 @@ impl Storage {
         let mut table_options = rocksdb::BlockBasedOptions::default();
         table_options.set_format_version(5);
         table_options.set_index_type(rocksdb::BlockBasedIndexType::TwoLevelIndexSearch);
-        table_options.set_bloom_filter(10.0, false);
+        table_options.set_bloom_filter(
+            10.0, false, /* this doesn't matter since `block_based`'s ignored*/
+        );
         table_options.set_metadata_block_size(4096);
         table_options.set_data_block_index_type(rocksdb::DataBlockIndexType::BinaryAndHash);
         table_options.set_data_block_hash_ratio(0.75);
@@ -139,15 +142,16 @@ impl Storage {
         let _guard = self.db_lock.write();
 
         self.db_closing = false;
-        let options = Self::init_rocksdb_options();
+        let options = self.init_rocksdb_options();
 
         if mode == OpenMode::Default {
             self.create_column_families(&options)?;
         }
 
-        let _metadata_table_opts = self.init_table_options();
+        let metadata_table_opts = self.init_table_options();
 
-        let metadata_opts = options.clone();
+        let mut metadata_opts = options.clone();
+        metadata_opts.set_block_based_table_factory(&metadata_table_opts);
 
         let _subkey_table_opts = self.init_table_options();
 
@@ -244,34 +248,24 @@ impl Drop for Storage {
 }
 
 #[cfg(test)]
-mod tests {
-
-    use common_telemetry::log::LoggingOptionBuilder;
-
-    use super::*;
-
-    #[test]
-    fn test() {
-        common_telemetry::log::init(
-            &LoggingOptionBuilder::default()
-                .append_stdout(true)
-                .build()
-                .unwrap(),
-        );
-        let mut storage = Storage::try_new(StorageConfig {
-            dbpath: "test".to_string(),
-            secondary_path: "test/secondary".to_string(),
-            _open_mode: OpenMode::Default,
-            _backup_path: None,
-            rocks_db: RocksDBConfig { block_size: 4096 },
-        })
-        .unwrap();
-        storage.open(OpenMode::Default).unwrap();
-    }
-
-    #[test]
-    fn test_cf_name() {
-        let d = ColumnFamilyId::Default;
-        assert_eq!(d.to_string(), "default");
-    }
+pub fn setup_test_storage_for_ut() -> Storage {
+    let dbpath_temp = tempfile::tempdir().unwrap();
+    let dbpath = dbpath_temp.path().to_str().unwrap().to_string();
+    let secondary_path = dbpath_temp
+        .path()
+        .join("secondary")
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let mut storage = Storage::try_new(StorageConfig {
+        dbpath,
+        secondary_path,
+        _open_mode: OpenMode::Default,
+        _backup_path: None,
+        rocks_db: RocksDBConfigBuilder::default().build().unwrap(),
+    })
+    .unwrap();
+    storage.open(OpenMode::Default).unwrap();
+    storage
 }

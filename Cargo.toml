@@ -18,6 +18,7 @@ rocksdb        = { version = "0.22", features = ["multi-threaded-cf"] }
 serde          = { version = "1.0", features = ["derive"] }
 snafu          = "0.8"
 strum          = { version = "0.26", features = ["derive"] }
+tempfile       = "3.10"
 tokio          = { version = "1", features = ["full"] }
 
 ## workspace members

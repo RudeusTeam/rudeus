@@ -207,21 +207,11 @@ mod tests {
 
     use super::*;
     use crate::database::Roxy;
-    use crate::storage::{RocksDBConfigBuilder, Storage, StorageConfigBuilder};
+    use crate::storage::setup_test_storage_for_ut;
 
     #[test]
     fn test_set_and_get() {
-        let rocksdb_config = RocksDBConfigBuilder::default()
-            .block_size(4096)
-            .build()
-            .unwrap();
-        let storage_config = StorageConfigBuilder::default()
-            .dbpath("string".to_owned())
-            .rocks_db(rocksdb_config)
-            .build()
-            .unwrap();
-        let mut storage = Storage::try_new(storage_config).unwrap();
-        storage.open(crate::storage::OpenMode::Default).unwrap();
+        let storage = setup_test_storage_for_ut();
         let storage = Arc::new(storage);
         let redis_string_db = RedisString::new(Roxy::new(
             storage,
