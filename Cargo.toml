@@ -4,7 +4,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [workspace]
-members  = ["src/common/base", "src/common/runtime", "src/common/telemetry", "src/roxy", "src/server"]
+members  = ["src/commands", "src/common/base", "src/common/runtime", "src/common/telemetry", "src/roxy", "src/server"]
 resolver = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -26,6 +26,7 @@ tokio          = { version = "1", features = ["full"] }
 tokio-util     = { version = "0.7" }
 
 ## workspace members
+commands         = { path = "src/commands" }
 common-base      = { path = "src/common/base" }
 common-runtime   = { path = "src/common/runtime" }
 common-telemetry = { path = "src/common/telemetry" }

@@ -12,15 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bytes::Bytes;
 use common_runtime::runtime::Runtime;
 use common_telemetry::log::{self, info, LoggingOptionBuilder};
-use futures::{SinkExt, StreamExt as _};
-use redis_protocol::codec::Resp3;
-use redis_protocol::resp3::types::BytesFrame;
-use redis_protocol::tokio_util::codec::Framed;
-use tokio::net::{TcpListener, TcpStream};
-use tokio_util::codec::Decoder;
+use server::connection::Connection;
+use tokio::net::TcpListener;
 
 async fn start() {
     let logging_option = LoggingOptionBuilder::default()
@@ -33,12 +28,11 @@ async fn start() {
     info!("Rudeus listening on: {}", "127.0.0.1:6379");
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
     loop {
-        let framed = listener
-            .accept()
-            .await
-            .map(|(socket, _)| Resp3::default().framed(socket))
-            .unwrap();
-        tokio::spawn(async { process(framed).await });
+        let stream = listener.accept().await.map(|(socket, _)| socket).unwrap();
+        tokio::spawn(async move {
+            let mut conn = Connection::new(stream);
+            conn.start().await
+        });
     }
 }
 
@@ -50,19 +44,4 @@ fn main() {
         .build()
         .expect("Failed to build runtime");
     rt.block_on(start());
-}
-
-async fn process(framed: Framed<TcpStream, Resp3>) {
-    let (mut writer, mut reader) = framed.split();
-    while let Some(frame) = reader.next().await {
-        let frame = frame.unwrap();
-        info!("Received: {:?}", frame);
-        let response = BytesFrame::SimpleString {
-            data: Bytes::from_static(b"OK"),
-            attributes: None,
-        };
-        writer.send(response).await.unwrap();
-    }
-
-    // Rest of the code...
 }
