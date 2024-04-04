@@ -48,12 +48,27 @@ pub mod test_utility {
     use bytes::{Buf, BufMut};
     use redis_protocol::codec::resp3_encode_command;
     use redis_protocol::resp3::encode::complete::encode_bytes;
-    use redis_protocol::resp3::types::Resp3Frame;
+    use redis_protocol::resp3::types::{OwnedFrame, Resp3Frame};
     use tokio::io::{self, AsyncRead, AsyncWrite};
 
     pub struct MockingTcpStream {
         pub read_buf: Cursor<Vec<u8>>,
         pub write_buf: Vec<u8>,
+    }
+
+    impl MockingTcpStream {
+        pub fn sending_cmd(cmd: &str) -> MockingTcpStream {
+            MockingTcpStream {
+                read_buf: Cursor::new(encode_resp3_command(cmd)),
+                write_buf: vec![],
+            }
+        }
+        pub fn response(&self) -> OwnedFrame {
+            let (frame, _) = redis_protocol::resp3::decode::complete::decode(&self.write_buf)
+                .unwrap()
+                .unwrap();
+            frame
+        }
     }
 
     impl AsyncRead for MockingTcpStream {
@@ -105,31 +120,20 @@ pub mod test_utility {
 #[cfg(test)]
 mod tests {
 
-    use std::io::Cursor;
-
-    use redis_protocol::resp3::decode::complete::decode;
     use redis_protocol::resp3::types::OwnedFrame;
-    use tests::test_utility::{encode_resp3_command, MockingTcpStream};
+    use tests::test_utility::MockingTcpStream;
 
     use super::*;
 
     #[tokio::test]
     async fn test_hello() {
-        let mut mocking_stream = MockingTcpStream {
-            read_buf: Cursor::new(encode_resp3_command("HELLO")),
-            write_buf: vec![],
-        };
+        let mut mocking_stream = MockingTcpStream::sending_cmd("HELLO");
         {
             let mut conn = Connection::new(&mut mocking_stream);
             conn.start().await;
         }
-        let write_buf_len = mocking_stream.write_buf.len();
-        let (frame, l) = decode(mocking_stream.write_buf.as_slice())
-            .unwrap()
-            .unwrap();
-        assert_eq!(write_buf_len, l);
         assert_eq!(
-            frame,
+            mocking_stream.response(),
             OwnedFrame::SimpleString {
                 data: b"OK"[..].to_vec(),
                 attributes: None
