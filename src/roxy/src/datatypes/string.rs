@@ -21,16 +21,19 @@ use derive_builder::Builder;
 use rocksdb::WriteOptions;
 use snafu::ResultExt;
 
-use crate::database::{Database, GetOptions};
+use crate::database::{Database, GetOptions, Roxy};
 use crate::error::{EncodeStringValueSnafu, Result};
 use crate::metadata::{Metadata, RedisType};
+use crate::storage::StorageRef;
 
 pub struct StringPair {
     _key: Bytes,
     _value: Bytes,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, strum::EnumString, Debug)]
+#[strum(ascii_case_insensitive)]
+#[strum(serialize_all = "UPPERCASE")]
 pub enum StringSetType {
     #[default]
     NONE,
@@ -38,8 +41,9 @@ pub enum StringSetType {
     XX,
 }
 
-#[derive(Builder, Clone)]
+#[derive(Builder, Clone, Debug)]
 pub struct StringSetArgs {
+    #[builder(default)]
     ttl: u64,
     #[builder(default)]
     set_type: StringSetType,
@@ -47,6 +51,12 @@ pub struct StringSetArgs {
     get: bool,
     #[builder(default)]
     keep_ttl: bool,
+}
+
+impl StringSetArgs {
+    pub fn set_type(&self) -> StringSetType {
+        self.set_type
+    }
 }
 
 pub enum StringLCSType {
@@ -201,6 +211,12 @@ where
     }
 }
 
+impl RedisString<Roxy> {
+    pub fn new_with_roxy(storage: StorageRef, namespace: Bytes) -> Self {
+        Self::new(Roxy::new(storage, namespace, RedisType::String))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -208,7 +224,6 @@ mod tests {
     use common_telemetry::log::init_ut_logging;
 
     use super::*;
-    use crate::database::Roxy;
     use crate::storage::setup_test_storage_for_ut;
 
     #[test]

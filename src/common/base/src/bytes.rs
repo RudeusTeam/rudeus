@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::{Display, Formatter};
 use std::ops::{Deref, RangeBounds};
 
 use binrw::io::NoSeek;
@@ -49,6 +50,12 @@ impl From<Bytes> for bytes::Bytes {
 impl From<bytes::Bytes> for Bytes {
     fn from(bytes: bytes::Bytes) -> Bytes {
         Bytes(bytes)
+    }
+}
+
+impl From<StringBytes> for Bytes {
+    fn from(value: StringBytes) -> Self {
+        Bytes(value.0)
     }
 }
 
@@ -142,6 +149,16 @@ impl StringBytes {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    pub fn new(bytes: bytes::Bytes) -> StringBytes {
+        StringBytes(bytes)
+    }
+}
+
+impl Display for StringBytes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_utf8())
+    }
 }
 
 impl From<String> for StringBytes {
@@ -153,6 +170,12 @@ impl From<String> for StringBytes {
 impl From<&str> for StringBytes {
     fn from(string: &str) -> StringBytes {
         StringBytes(bytes::Bytes::copy_from_slice(string.as_bytes()))
+    }
+}
+
+impl From<StringBytes> for String {
+    fn from(bytes: StringBytes) -> String {
+        String::from_utf8(bytes.0.to_vec()).unwrap()
     }
 }
 

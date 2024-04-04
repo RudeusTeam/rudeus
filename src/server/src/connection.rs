@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use common_telemetry::log::info;
+use common_telemetry::log::debug;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt as _, StreamExt};
 use redis_protocol::codec::Resp3;
@@ -28,7 +28,7 @@ where
     pub async fn start(&mut self) {
         while let Some(frame) = self.reader.next().await {
             let frame = frame;
-            info!("Received: {:?}", frame);
+            debug!("Received: {:?}", frame);
             let response = BytesFrame::SimpleString {
                 data: Bytes::from_static(b"OK"),
                 attributes: None,
@@ -46,7 +46,7 @@ pub mod test_utility {
     use std::task::{Context, Poll};
 
     use bytes::{Buf, BufMut};
-    use redis_protocol::codec::resp3_encode_command;
+    use redis_protocol::codec;
     use redis_protocol::resp3::encode::complete::encode_bytes;
     use redis_protocol::resp3::types::{OwnedFrame, Resp3Frame};
     use tokio::io::{self, AsyncRead, AsyncWrite};
@@ -59,7 +59,7 @@ pub mod test_utility {
     impl MockingTcpStream {
         pub fn sending_cmd(cmd: &str) -> MockingTcpStream {
             MockingTcpStream {
-                read_buf: Cursor::new(encode_resp3_command(cmd)),
+                read_buf: Cursor::new(resp3_encode_command(cmd)),
                 write_buf: vec![],
             }
         }
@@ -109,8 +109,8 @@ pub mod test_utility {
         }
     }
 
-    pub fn encode_resp3_command(cmd: &str) -> Vec<u8> {
-        let frame = resp3_encode_command(cmd);
+    pub fn resp3_encode_command(cmd: &str) -> Vec<u8> {
+        let frame = codec::resp3_encode_command(cmd);
         let mut buf = vec![0; frame.encode_len()];
         encode_bytes(&mut buf, &frame).unwrap();
         buf
@@ -120,6 +120,7 @@ pub mod test_utility {
 #[cfg(test)]
 mod tests {
 
+    use common_telemetry::log::init_ut_logging;
     use redis_protocol::resp3::types::OwnedFrame;
     use tests::test_utility::MockingTcpStream;
 
@@ -139,5 +140,16 @@ mod tests {
                 attributes: None
             }
         );
+    }
+
+    #[tokio::test]
+    async fn test() {
+        init_ut_logging();
+        let mut mocking_stream = MockingTcpStream::sending_cmd("SET key \"Value\"");
+        {
+            let mut conn = Connection::new(&mut mocking_stream);
+            conn.start().await;
+        }
+        // mocking_stream.response()
     }
 }

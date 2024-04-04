@@ -185,6 +185,12 @@ dependencies = [
 name = "commands"
 version = "0.0.1"
 dependencies = [
+ "bytes",
+ "common-base",
+ "paste",
+ "redis-protocol",
+ "roxy",
+ "snafu",
  "strum",
 ]
 
