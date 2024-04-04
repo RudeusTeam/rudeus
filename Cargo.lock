@@ -184,6 +184,9 @@ dependencies = [
 [[package]]
 name = "commands"
 version = "0.0.1"
+dependencies = [
+ "strum",
+]
 
 [[package]]
 name = "common-base"
