@@ -1,6 +1,6 @@
 ## Redeus
 
-`Redeus` is a distributed key-value database implemented with `Rust` using `RocksDB` as storage engine and is compatiable with Redis Protocol.
+`Redeus` is a distributed key-value database compatiable with Redis Protocol, implemented with `Rust` using `RocksDB` as storage engine .
 
 ## Build and run Redeus
 
