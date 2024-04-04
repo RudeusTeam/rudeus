@@ -19,4 +19,5 @@ tokio-util.workspace     = true
 tokio.workspace          = true
 
 common-base.workspace      = true
+common-runtime.workspace   = true
 common-telemetry.workspace = true

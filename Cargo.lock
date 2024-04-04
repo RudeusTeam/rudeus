@@ -192,6 +192,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-runtime"
+version = "0.0.1"
+dependencies = [
+ "common-telemetry",
+ "once_cell",
+ "paste",
+ "snafu",
+ "tokio",
+]
+
+[[package]]
 name = "common-telemetry"
 version = "0.0.1"
 dependencies = [
@@ -692,6 +703,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -890,6 +907,7 @@ version = "0.0.1"
 dependencies = [
  "bytes",
  "common-base",
+ "common-runtime",
  "common-telemetry",
  "futures",
  "redis-protocol",

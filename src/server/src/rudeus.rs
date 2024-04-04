@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use bytes::Bytes;
+use common_runtime::runtime::Runtime;
 use common_telemetry::log::{self, info, LoggingOptionBuilder};
 use futures::{SinkExt, StreamExt as _};
 use redis_protocol::codec::Resp3;
@@ -21,8 +22,7 @@ use redis_protocol::tokio_util::codec::Framed;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::Decoder;
 
-#[tokio::main]
-async fn main() {
+async fn start() {
     let logging_option = LoggingOptionBuilder::default()
         .append_stdout(true)
         .level(Some("debug".to_owned()))
@@ -40,6 +40,16 @@ async fn main() {
             .unwrap();
         tokio::spawn(async { process(framed).await });
     }
+}
+
+fn main() {
+    let rt = Runtime::builder()
+        .worker_threads(4)
+        .runtime_name("Network")
+        .thread_name("network")
+        .build()
+        .expect("Failed to build runtime");
+    rt.block_on(start());
 }
 
 async fn process(framed: Framed<TcpStream, Resp3>) {
