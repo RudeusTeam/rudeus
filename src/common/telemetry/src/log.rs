@@ -65,6 +65,7 @@ pub fn init_ut_logging() {
         let mut g = GLOBAL_UT_LOG_GUARDS.lock().unwrap();
         let opts = LoggingOptionBuilder::default()
             .append_stdout(true)
+            .level(Some("debug".to_string()))
             .build()
             .unwrap();
         *g = Some(init(&opts))
