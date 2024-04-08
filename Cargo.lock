@@ -756,9 +756,9 @@ dependencies = [
 
 [[package]]
 name = "redis-protocol"
-version = "5.0.0"
+version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d30496c7ef712556a132b322c57239bea229c76d8508b1794da879888ac93ee"
+checksum = "65deb7c9501fbb2b6f812a30d59c0253779480853545153a51d8e9e444ddc99f"
 dependencies = [
  "bytes",
  "bytes-utils",
