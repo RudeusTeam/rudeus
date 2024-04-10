@@ -24,7 +24,7 @@ use snafu::ResultExt;
 use crate::database::{Database, GetOptions, Roxy};
 use crate::error::{EncodeStringValueSnafu, Result};
 use crate::metadata::{Metadata, RedisType};
-use crate::storage::StorageRef;
+use crate::storage::Storage;
 
 pub struct StringPair {
     _key: Bytes,
@@ -104,16 +104,15 @@ pub struct StringLCSIdxResult {
 /// │unused(4bits)-> <- datatype(4bits)│  (8bytes)  │ (Nbytes) │
 /// └──────────────────────────────────┴────────────┴──────────┘
 /// ```
-pub struct RedisString<Database> {
-    database: Database,
+pub struct RedisString<'s> {
+    database: Roxy<'s>,
 }
 
-impl<D> RedisString<D>
-where
-    D: Database,
-{
-    pub fn new(database: D) -> Self {
-        Self { database }
+impl<'s> RedisString<'s> {
+    pub fn new(storage: &'s Storage, namespace: Bytes) -> Self {
+        Self {
+            database: Roxy::new(storage, namespace, RedisType::String),
+        }
     }
 
     fn get_value(&self, ns_key: Bytes) -> Result<Option<Bytes>> {
@@ -211,16 +210,8 @@ where
     }
 }
 
-impl RedisString<Roxy> {
-    pub fn new_with_roxy(storage: StorageRef, namespace: Bytes) -> Self {
-        Self::new(Roxy::new(storage, namespace, RedisType::String))
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use common_telemetry::log::init_ut_logging;
 
     use super::*;
@@ -230,12 +221,7 @@ mod tests {
     fn test_set_and_get() {
         init_ut_logging();
         let storage = setup_test_storage_for_ut();
-        let storage = Arc::new(storage);
-        let redis_string_db = RedisString::new(Roxy::new(
-            storage,
-            Bytes::from("string".as_bytes()),
-            RedisType::String,
-        ));
+        let redis_string_db = RedisString::new(&storage, Bytes::from("ns".as_bytes()));
 
         let user_key = Bytes::from("user_key".as_bytes());
         let value = Bytes::from("value".as_bytes());

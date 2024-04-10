@@ -16,6 +16,8 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use common_base::bytes::Bytes;
+use common_base::lock_pool;
+use common_base::lock_pool::LockPool;
 use common_telemetry::log::info;
 use derive_builder::Builder;
 use parking_lot::RwLock;
@@ -75,7 +77,7 @@ pub struct Storage {
 
     /// This RwLock is used to allow multiple readers or one writer who may close the database
     db_lock: RwLock<()>,
-    // _phantom: std::marker::PhantomData<&'db ()>,
+    lock_pool: LockPool,
 }
 
 // mainly come from KVRocks
@@ -87,6 +89,7 @@ impl Storage {
             db_lock: RwLock::new(()),
             db_closing: true,
             _env: env,
+            lock_pool: LockPool::new(16),
             config,
         })
     }
@@ -234,6 +237,10 @@ impl Storage {
         self.db()
             .write_opt(updates, write_options)
             .context(WriteToRocksDBSnafu)
+    }
+
+    pub fn lock_key(&self, key: Bytes) -> lock_pool::MutexGuard {
+        self.lock_pool.lock(key)
     }
 
     pub(crate) fn db(&self) -> &DB {

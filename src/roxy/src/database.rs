@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use common_base::bytes::Bytes;
-use common_base::lock_pool::{self, LockPool};
+use common_base::lock_pool;
 use rocksdb::{AsColumnFamilyRef, WriteBatch, WriteOptions};
 
 use crate::error::{DatatypeMismatchedSnafu, KeyExpiredSnafu, Result};
 use crate::metadata::{self, Metadata, RedisType};
-use crate::storage::{ColumnFamilyId, StorageRef};
+use crate::storage::{ColumnFamilyId, Storage};
 
 pub trait Database {
     /// Lock type for a key
@@ -98,20 +98,18 @@ pub trait Database {
 
 /// [`Roxy`] is a wrapper of storage engine, it provides
 /// some  common operations for redis commands.
-pub struct Roxy {
-    storage: StorageRef,
+pub struct Roxy<'s> {
+    storage: &'s Storage,
     namespace: Bytes,
     column_family_id: ColumnFamilyId,
-    lock_pool: LockPool,
 }
 
-impl Roxy {
-    pub fn new(storage: StorageRef, namespace: Bytes, redis_type: RedisType) -> Self {
+impl<'s> Roxy<'s> {
+    pub fn new(storage: &'s Storage, namespace: Bytes, redis_type: RedisType) -> Self {
         Self {
             storage,
             namespace,
             column_family_id: redis_type.into(),
-            lock_pool: LockPool::new(16),
         }
     }
     pub fn get_cf_id(&self) -> ColumnFamilyId {
@@ -119,10 +117,11 @@ impl Roxy {
     }
 }
 
-impl Database for Roxy {
+impl<'s> Database for Roxy<'s> {
     type KeyLock = lock_pool::Mutex;
 
-    type KeyLockGuard<'a> = lock_pool::MutexGuard<'a>;
+    type KeyLockGuard<'a> = lock_pool::MutexGuard<'a>
+    where Self: 'a;
 
     fn get_raw_metadata(&self, options: GetOptions, ns_key: Bytes) -> Result<Option<Bytes>> {
         let mut opts = rocksdb::ReadOptions::default();
@@ -133,7 +132,7 @@ impl Database for Roxy {
     }
 
     fn lock_key(&self, key: Bytes) -> Self::KeyLockGuard<'_> {
-        self.lock_pool.lock(key)
+        self.storage.lock_key(key)
     }
 
     fn get_write_batch(&self) -> WriteBatch {
