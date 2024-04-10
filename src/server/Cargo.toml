@@ -20,6 +20,7 @@ tokio-util.workspace     = true
 tokio.workspace          = true
 toml.workspace           = true
 
+commands.workspace         = true
 common-base.workspace      = true
 common-runtime.workspace   = true
 common-telemetry.workspace = true

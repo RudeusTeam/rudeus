@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use std::error::Error;
+use std::sync::Arc;
 
-use common_runtime::runtime::Runtime;
+use common_runtime::global_runtime::{block_on_network, init_global_runtimes};
 use common_telemetry::log::{self, LoggingOption};
 use roxy::storage::{Storage, StorageConfig};
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,8 @@ pub struct RudeusConfig {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    init_global_runtimes(None, None, None);
+
     let config: RudeusConfig = toml::from_str(
         r#"
         [logging]
@@ -44,15 +47,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
     let _log_workers = log::init(&config.logging);
 
-    let storage = Storage::try_new(config.storage)?;
-    let server = Server::new(storage, config.server);
+    let mut storage = Storage::try_new(config.storage)?;
+    storage.open(roxy::storage::OpenMode::Default)?;
+    let server = Server::new(Arc::new(storage), config.server);
 
-    let rt = Runtime::builder()
-        .worker_threads(4)
-        .runtime_name("Network")
-        .thread_name("network")
-        .build()
-        .expect("Failed to build runtime");
-    rt.block_on(server.start());
+    block_on_network(server.start());
     Ok(())
 }

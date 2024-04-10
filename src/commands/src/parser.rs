@@ -18,11 +18,35 @@ mod alt;
 
 use bytes::Bytes;
 
-use crate::error::ParseError;
-
 pub type Token = Bytes;
-// pub type Tokens<'a> = &'a [Token];
 
+#[derive(Debug, Snafu)]
+pub enum ParseError {
+    InvalidSyntax {
+        command_name: String,
+    },
+    #[snafu(display("expect keyword: {}, actual: {}", expected, actual))]
+    MismatchedKeyword {
+        expected: String,
+        actual: String,
+    },
+    #[snafu(display("expect value of type: {}, got value: {}", typ, token))]
+    InvalidValueOfType {
+        typ: String,
+        token: String,
+    },
+    #[snafu(display("expect a key"))]
+    MissKey,
+    #[snafu(display("{}", message))]
+    InvalidArgument {
+        message: String,
+    },
+
+    #[snafu(display("unexpected token: {}", token))]
+    UnexpectedToken {
+        token: String,
+    },
+}
 pub struct Tokens<'a> {
     tokens: &'a [Token],
     cursor: usize,
@@ -33,13 +57,25 @@ impl<'a> Tokens<'a> {
         Self { tokens, cursor: 0 }
     }
 
-    fn advance(&mut self) {
+    pub fn advance(&mut self) {
         self.cursor += 1;
     }
 
     /// check if the cursor is at the end of the tokens
     pub fn is_eot(&self) -> bool {
         self.cursor >= self.tokens.len()
+    }
+
+    /// if the [`cursor`] is not at the end of the [`tokens`], return an error
+    pub fn expect_eot(&self) -> ParseResult<()> {
+        if self.is_eot() {
+            Ok(())
+        } else {
+            UnexpectedTokenSnafu {
+                token: String::from_utf8_lossy(self.current().unwrap()),
+            }
+            .fail()
+        }
     }
 
     pub fn current(&self) -> Option<&Token> {
@@ -82,8 +118,7 @@ mod operand {
     use common_base::bytes::{Bytes, StringBytes};
     use snafu::OptionExt as _;
 
-    use super::{Parser, Tokens};
-    use crate::error::{InvalidValueOfTypeSnafu, MismatchedKeywordSnafu, MissKeySnafu};
+    use super::{InvalidValueOfTypeSnafu, MismatchedKeywordSnafu, MissKeySnafu, Parser, Tokens};
 
     /// expect a keyword(ignore case)
     pub fn keyword<'a>(ident: &str) -> impl Parser<'a, Output = StringBytes> {
@@ -186,7 +221,7 @@ mod combinator {
         }
     }
 
-    /// optional parser
+    /// optional parser, return `None` if the parser failed, impossible to return `Err`
     pub fn optional<'a, P>(parser: P) -> impl Parser<'a, Output = Option<P::Output>>
     where
         P: Parser<'a>,
@@ -204,6 +239,7 @@ mod combinator {
 pub use alt::*;
 pub use combinator::*;
 pub use operand::*;
+use snafu::Snafu;
 
 #[cfg(test)]
 mod tests {

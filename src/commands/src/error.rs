@@ -14,31 +14,22 @@
 
 use snafu::Snafu;
 
+use crate::commands::CommandId;
+use crate::parser::ParseError;
+
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
-pub enum ParseError {
-    InvalidSyntax {
-        command_name: String,
+pub enum Error {
+    #[snafu(display("Invalid '{}' command", cmd_id))]
+    InvalidCmdSyntax {
+        source: ParseError,
+        cmd_id: CommandId,
     },
-    #[snafu(display("expect keyword: {}, actual: {}", expected, actual))]
-    MismatchedKeyword {
-        expected: String,
-        actual: String,
-    },
-    #[snafu(display("expect value of type: {}, got value: {}", typ, token))]
-    InvalidValueOfType {
-        typ: String,
-        token: String,
-    },
-    #[snafu(display("expect a key"))]
-    MissKey,
-    #[snafu(display("{}", message))]
-    InvalidArgument {
-        message: String,
-    },
-
-    #[snafu(display("unexpected token: {}", token))]
-    UnexpectedToken {
-        token: String,
+    #[snafu(display("Fail to execute command '{}' because of storage error", cmd_id))]
+    FailInStorage {
+        source: roxy::error::Error,
+        cmd_id: CommandId,
     },
 }
+
+pub type Result<T> = std::result::Result<T, Error>;

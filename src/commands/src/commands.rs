@@ -12,31 +12,60 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+
 use bytes::Bytes;
+use once_cell::sync::Lazy;
 use redis_protocol::resp3::types::BytesFrame;
+use roxy::storage::Storage;
+
+use crate::error::Result;
 
 mod string;
 
-#[derive(Debug, strum::Display)]
-#[strum(serialize_all = "snake_case")]
+pub static COMMANDS_TABLE: Lazy<HashMap<CommandId, Command>> = Lazy::new(|| {
+    let mut table = HashMap::new();
+    table.insert(CommandId::SET, Command::new(CommandId::SET));
+    table
+});
+
+/// ```                                                                     
+/// COMMAND: string => Command ID => Command ──create──► CommandInstance
+/// ```
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, strum::Display, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
+#[strum(ascii_case_insensitive)]
 pub enum CommandId {
     SET,
 }
 
-pub struct CommandAttr {
+pub struct Command {
     /// command id i.e. command name
-    cmd_id: CommandId,
+    id: CommandId,
 }
 
-pub trait Command {
-    type Error;
-    type Args;
+impl Command {
+    pub fn new(cmd_id: CommandId) -> Self {
+        Self { id: cmd_id }
+    }
 
-    fn get_attr(&self) -> &CommandAttr;
+    pub fn new_instance(&self) -> impl CommandInstance {
+        match self.id {
+            CommandId::SET => string::Set::new(),
+        }
+    }
+}
+
+pub trait CommandInstance {
+    fn get_attr(&self) -> &Command;
+
+    fn id(&self) -> CommandId {
+        self.get_attr().id
+    }
 
     /// Parse an array of Bytes, since client can only send RESP3 Array frames
-    fn parse(&self, input: Vec<Bytes>) -> Result<Self::Args, Self::Error>;
-    fn execute(&self) -> Result<BytesFrame, Self::Error>;
+    fn parse(&mut self, input: Vec<Bytes>) -> Result<()>;
+    fn execute(self, storage: &Storage, namespace: Bytes) -> BytesFrame;
 }
 
 #[cfg(test)]

@@ -187,6 +187,7 @@ version = "0.0.1"
 dependencies = [
  "bytes",
  "common-base",
+ "once_cell",
  "paste",
  "redis-protocol",
  "roxy",
@@ -952,6 +953,7 @@ name = "server"
 version = "0.0.1"
 dependencies = [
  "bytes",
+ "commands",
  "common-base",
  "common-runtime",
  "common-telemetry",

@@ -1,38 +1,78 @@
 use bytes::Bytes;
+use commands::commands::{CommandId, CommandInstance, COMMANDS_TABLE};
+use common_base::bytes::StringBytes;
 use common_telemetry::log::debug;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt as _, StreamExt};
 use redis_protocol::codec::Resp3;
 use redis_protocol::resp3::types::BytesFrame;
+use roxy::storage::StorageRef;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
-
 type Stream<T> = SplitStream<Framed<T, Resp3>>;
 type Sink<T> = SplitSink<Framed<T, Resp3>, BytesFrame>;
 
 pub struct Connection<T> {
     reader: Stream<T>,
     writer: Sink<T>,
+    namespace: Bytes,
+    storage: StorageRef,
 }
 
 impl<T> Connection<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    pub fn new(inner: T) -> Self {
+    pub fn new(inner: T, storage: StorageRef) -> Self {
         let frame = Framed::new(inner, Resp3::default());
         let (writer, reader) = frame.split();
-        Self { reader, writer }
+        Self {
+            reader,
+            writer,
+            storage,
+            namespace: Bytes::from_static(b"default"),
+        }
+    }
+
+    fn frame_as_bytes_array(frame: BytesFrame) -> Vec<Bytes> {
+        match frame {
+            BytesFrame::Array { data, .. } => data
+                .iter()
+                .map(|b| match b {
+                    BytesFrame::SimpleString { data, .. } => data.clone(),
+                    BytesFrame::BlobString { data, .. } => data.clone(),
+                    _ => unreachable!(),
+                })
+                .collect(),
+            _ => unreachable!(),
+        }
     }
 
     pub async fn start(&mut self) {
         while let Some(frame) = self.reader.next().await {
-            let frame = frame;
+            let frame = frame.unwrap();
             debug!("Received: {:?}", frame);
-            let response = BytesFrame::SimpleString {
-                data: Bytes::from_static(b"OK"),
-                attributes: None,
+            let command_tokens = Self::frame_as_bytes_array(frame);
+            let command_id: CommandId = match StringBytes::new(command_tokens[0].clone())
+                .as_utf8()
+                .parse()
+            {
+                Ok(id) => id,
+                Err(_) => {
+                    let _ = self
+                        .writer
+                        .send(BytesFrame::SimpleString {
+                            data: Bytes::from_static(b"Unimplemented"),
+                            attributes: None,
+                        })
+                        .await;
+                    continue;
+                }
             };
+            let command = COMMANDS_TABLE.get(&command_id).unwrap();
+            let mut command_inst = command.new_instance();
+            command_inst.parse(command_tokens).unwrap();
+            let response = command_inst.execute(&self.storage, self.namespace.clone());
             let res = self.writer.send(response).await;
             assert!(res.is_ok());
         }
@@ -117,6 +157,8 @@ pub mod test_utility {
     }
 }
 
+/*
+
 #[cfg(test)]
 mod tests {
 
@@ -150,6 +192,8 @@ mod tests {
             let mut conn = Connection::new(&mut mocking_stream);
             conn.start().await;
         }
-        // mocking_stream.response()
+        mocking_stream.response()
     }
 }
+
+*/

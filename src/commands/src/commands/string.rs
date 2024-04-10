@@ -15,79 +15,110 @@
 use bytes::Bytes;
 use common_base::bytes::StringBytes;
 use redis_protocol::resp3::types::BytesFrame;
-use roxy::datatypes::string::{StringSetArgs, StringSetArgsBuilder, StringSetType};
-use snafu::{ResultExt, Snafu};
+use roxy::datatypes::string::{RedisString, StringSetArgs, StringSetArgsBuilder, StringSetType};
+use roxy::storage::Storage;
+use snafu::ResultExt;
 
-use super::{Command, CommandAttr, CommandId};
-use crate::error::{ParseError, UnexpectedTokenSnafu};
-use crate::parser::{chain, key, keyword, optional, right, string, value_of_type, Parser, Tokens};
+use super::{Command, CommandId, CommandInstance};
+use crate::error::{FailInStorageSnafu, InvalidCmdSyntaxSnafu, Result};
+use crate::parser::{chain, key, keyword, optional, string, value_of_type, Parser, Tokens};
 
-pub struct Set {
-    attr: CommandAttr,
-}
-
-#[derive(Debug, Snafu)]
-pub enum StringCommandError {
-    #[snafu(display("invalid 'SET' command"))]
-    InvalidSyntax { source: ParseError },
-}
-
-#[derive(Debug)]
 pub struct SetArgs {
     key: Bytes,
     value: StringBytes,
-    args: StringSetArgs,
+    set_args: StringSetArgs,
+}
+
+/// [`SET`] is an instance of `SET` command
+pub struct Set {
+    cmd: Command,
+    args: Option<SetArgs>,
 }
 
 impl Set {
     pub fn new() -> Self {
         Self {
-            attr: CommandAttr {
-                cmd_id: CommandId::SET,
-            },
+            cmd: Command { id: CommandId::SET },
+            args: None,
         }
     }
 }
 
-impl Command for Set {
-    type Error = StringCommandError;
-    type Args = SetArgs;
-
-    fn get_attr(&self) -> &CommandAttr {
-        &self.attr
+impl CommandInstance for Set {
+    fn get_attr(&self) -> &Command {
+        &self.cmd
     }
 
-    fn parse(&self, _input: Vec<Bytes>) -> Result<Self::Args, Self::Error> {
-        let mut tokens = Tokens::new(&_input[..]);
-        let (key, value) = right(keyword("SET"), chain(key(), string()))
+    fn parse(&mut self, input: Vec<Bytes>) -> Result<()> {
+        let mut tokens = Tokens::new(&input[..]);
+        // skip the command name which is already ensured by strum
+        tokens.advance();
+        let context = chain(key(), string())
             .parse(&mut tokens)
-            .context(InvalidSyntaxSnafu)?;
+            .context(InvalidCmdSyntaxSnafu { cmd_id: self.id() });
+        let (key, value) = context?;
         // TODO: Add permutation parser
         let set_type = optional(value_of_type::<StringSetType>())
             .parse(&mut tokens)
-            .context(InvalidSyntaxSnafu)?;
+            .unwrap();
+        let get = optional(keyword("GET"))
+            .parse(&mut tokens)
+            .unwrap()
+            .is_some();
+
         let string_set_args = StringSetArgsBuilder::default()
             .set_type(set_type.unwrap_or(StringSetType::NONE))
+            .get(get)
             .build()
             .unwrap();
 
-        if tokens.is_eot() {
-            Ok(SetArgs {
-                key: key.into(),
-                value,
-                args: string_set_args,
-            })
-        } else {
-            UnexpectedTokenSnafu {
-                token: String::from_utf8_lossy(&tokens.current().unwrap()[..]),
-            }
-            .fail()
-            .context(InvalidSyntaxSnafu)
-        }
+        tokens
+            .expect_eot()
+            .context(InvalidCmdSyntaxSnafu { cmd_id: self.id() })?;
+        self.args = Some(SetArgs {
+            key: key.into(),
+            value,
+            set_args: string_set_args,
+        });
+        Ok(())
     }
 
-    fn execute(&self) -> Result<BytesFrame, Self::Error> {
-        unimplemented!()
+    fn execute(mut self, storage: &Storage, namespace: Bytes) -> BytesFrame {
+        let db = RedisString::new(storage, namespace.into());
+
+        let args = self.args.take().unwrap();
+        // TODO: handle ttl
+
+        let opt_old = match db
+            .set(args.key.into(), args.value.into(), &args.set_args)
+            .context(FailInStorageSnafu { cmd_id: self.id() })
+        {
+            Ok(opt_old) => opt_old,
+            Err(err) => {
+                return BytesFrame::SimpleError {
+                    data: err.to_string().into(),
+                    attributes: None,
+                }
+            }
+        };
+
+        if args.set_args.get {
+            if let Some(old) = opt_old {
+                BytesFrame::BlobString {
+                    data: old.into(),
+                    attributes: None,
+                }
+            } else {
+                BytesFrame::Null {}
+            }
+        } else if opt_old.is_some() {
+            BytesFrame::SimpleString {
+                data: "OK".into(),
+                attributes: None,
+            }
+        } else {
+            BytesFrame::Null
+        }
     }
 }
 
@@ -101,17 +132,18 @@ mod tests {
     #[test]
     fn test_valid_set_cmd_parse() {
         let input = resp3_encode_command("SeT key value nX");
-        let set_cmd = Set::new();
-        let args = set_cmd.parse(input).unwrap();
+        let mut set_cmd = Set::new();
+        assert!(set_cmd.parse(input).is_ok());
+        let args = set_cmd.args.as_ref().unwrap();
         assert_eq!(args.key, &b"key"[..]);
         assert_eq!(args.value.as_utf8(), "value");
-        assert_eq!(args.args.set_type(), StringSetType::NX);
+        assert_eq!(args.set_args.set_type(), StringSetType::NX);
     }
 
     #[test]
     fn test_invalid_set_cmd_parse() {
         let input = resp3_encode_command("SeT key value invalid");
-        let set_cmd = Set::new();
+        let mut set_cmd = Set::new();
         println!(
             "{}",
             set_cmd.parse(input.clone()).unwrap_err().source().unwrap()

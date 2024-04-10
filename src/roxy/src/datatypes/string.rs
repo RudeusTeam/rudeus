@@ -44,13 +44,13 @@ pub enum StringSetType {
 #[derive(Builder, Clone, Debug)]
 pub struct StringSetArgs {
     #[builder(default)]
-    ttl: u64,
+    pub ttl: u64,
     #[builder(default)]
-    set_type: StringSetType,
+    pub set_type: StringSetType,
     #[builder(default)]
-    get: bool,
+    pub get: bool,
     #[builder(default)]
-    keep_ttl: bool,
+    pub keep_ttl: bool,
 }
 
 impl StringSetArgs {
@@ -147,7 +147,12 @@ impl<'s> RedisString<'s> {
         self.get_value(ns_key)
     }
 
-    pub fn set(&self, user_key: Bytes, value: Bytes, args: StringSetArgs) -> Result<Option<Bytes>> {
+    pub fn set(
+        &self,
+        user_key: Bytes,
+        value: Bytes,
+        args: &StringSetArgs,
+    ) -> Result<Option<Bytes>> {
         let mut expire = 0u64;
         let ns_key = self.database.encode_namespace_prefix(user_key);
         let _guard = self.database.lock_key(ns_key.clone());
@@ -231,7 +236,7 @@ mod tests {
             .get(true)
             .build()
             .unwrap();
-        redis_string_db.set(user_key.clone(), value, args).unwrap();
+        redis_string_db.set(user_key.clone(), value, &args).unwrap();
 
         let result = redis_string_db.get(user_key).unwrap().unwrap();
         println!(

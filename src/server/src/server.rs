@@ -1,5 +1,5 @@
 use common_telemetry::log::info;
-use roxy::storage::Storage;
+use roxy::storage::{Storage, StorageRef};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
@@ -11,12 +11,12 @@ pub struct ServerConfig {
 }
 
 pub struct Server {
-    storage: Storage,
+    storage: StorageRef,
     bind: String,
 }
 
 impl Server {
-    pub fn new(storage: Storage, config: ServerConfig) -> Self {
+    pub fn new(storage: StorageRef, config: ServerConfig) -> Self {
         Self {
             storage,
             bind: config.bind,
@@ -28,12 +28,14 @@ impl Server {
     }
 
     pub async fn start(&self) {
+        // static self here is to make sure that the server is alive for the lifetime of the program
         info!("Rudeus listening on: {}", self.bind);
         let listener = TcpListener::bind(&self.bind).await.unwrap();
         loop {
             let stream = listener.accept().await.map(|(socket, _)| socket).unwrap();
+            let storage = self.storage.clone();
             tokio::spawn(async move {
-                let mut conn = Connection::new(stream);
+                let mut conn = Connection::new(stream, storage);
                 conn.start().await
             });
         }
