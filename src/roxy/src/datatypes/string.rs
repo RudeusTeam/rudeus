@@ -212,6 +212,7 @@ impl<'s> RedisString<'s> {
 
 #[cfg(test)]
 mod tests {
+
     use common_telemetry::log::init_ut_logging;
 
     use super::*;

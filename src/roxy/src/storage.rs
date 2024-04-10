@@ -19,9 +19,9 @@ use common_base::bytes::Bytes;
 use common_base::lock_pool;
 use common_base::lock_pool::LockPool;
 use common_telemetry::log::info;
-use derive_builder::Builder;
 use parking_lot::RwLock;
 use rocksdb::{ReadOptions, WriteBatch, WriteOptions, DB};
+use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 use strum::VariantArray;
 
@@ -30,22 +30,29 @@ use crate::error::{
     Result, WriteToRocksDBSnafu,
 };
 
-#[derive(Builder, Debug, Clone)]
+const DEFAULT_BLOCK_SIZE: usize = 4096;
+
+fn default_block_size() -> usize {
+    DEFAULT_BLOCK_SIZE
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RocksDBConfig {
-    #[builder(default = "4096")]
+    #[serde(default = "default_block_size")]
     block_size: usize,
 }
 
-#[derive(Builder, Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StorageConfig {
+    #[serde(rename = "path")]
     dbpath: String,
-    #[builder(default)]
+    #[serde(default)]
     secondary_path: String,
-    #[builder(default)]
+    #[serde(default)]
     _open_mode: OpenMode,
-    #[builder(default)]
+    #[serde(default)]
     _backup_path: Option<String>,
-    rocks_db: RocksDBConfig,
+    rocksdb: RocksDBConfig,
 }
 
 #[derive(
@@ -58,7 +65,7 @@ pub enum ColumnFamilyId {
     Metadata,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub enum OpenMode {
     #[default]
     Default,
@@ -110,7 +117,7 @@ impl Storage {
         table_options.set_metadata_block_size(4096);
         table_options.set_data_block_index_type(rocksdb::DataBlockIndexType::BinaryAndHash);
         table_options.set_data_block_hash_ratio(0.75);
-        table_options.set_block_size(self.config.rocks_db.block_size);
+        table_options.set_block_size(self.config.rocksdb.block_size);
         table_options
     }
 
@@ -265,14 +272,19 @@ pub fn setup_test_storage_for_ut() -> Storage {
         .to_str()
         .unwrap()
         .to_string();
-    let mut storage = Storage::try_new(StorageConfig {
-        dbpath,
-        secondary_path,
-        _open_mode: OpenMode::Default,
-        _backup_path: None,
-        rocks_db: RocksDBConfigBuilder::default().build().unwrap(),
-    })
+    let storage_config: StorageConfig = toml::from_str(
+        format!(
+            r#"
+    path = "{}"
+    secondary_path = "{}"
+    rocksdb = {{ block_size = 4096 }}
+    "#,
+            dbpath, secondary_path
+        )
+        .as_str(),
+    )
     .unwrap();
+    let mut storage = Storage::try_new(storage_config).unwrap();
     storage.open(OpenMode::Default).unwrap();
     storage
 }

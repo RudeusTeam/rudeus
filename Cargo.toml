@@ -23,6 +23,7 @@ strum          = { version = "0.26", features = ["derive"] }
 tempfile       = "3.10"
 tokio          = { version = "1", features = ["full"] }
 tokio-util     = { version = "0.7" }
+toml           = "0.8"
 
 ## workspace members
 commands         = { path = "src/commands" }
