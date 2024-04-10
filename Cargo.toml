@@ -39,4 +39,4 @@ features = [
     "codec",
     "resp3",
 ]
-git = "https://github.com/J0HN50N133/redis-protocol.rs.git"
+version = "5.0.1"
