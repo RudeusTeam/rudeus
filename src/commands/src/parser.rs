@@ -25,26 +25,32 @@ pub enum ParseError {
     InvalidSyntax {
         command_name: String,
     },
-    #[snafu(display("expect keyword: {}, actual: {}", expected, actual))]
+    #[snafu(display("Expect keyword: {}, actual: {}", expected, actual))]
     MismatchedKeyword {
         expected: String,
         actual: String,
     },
-    #[snafu(display("expect value of type: {}, got value: {}", typ, token))]
+    #[snafu(display("Expect value of type: {}, got value: {}", typ, token))]
     InvalidValueOfType {
         typ: String,
         token: String,
     },
-    #[snafu(display("expect a key"))]
+    #[snafu(display("Expect a key"))]
     MissKey,
     #[snafu(display("{}", message))]
     InvalidArgument {
         message: String,
     },
 
-    #[snafu(display("unexpected token: {}", token))]
+    #[snafu(display("Unexpected token: {}", token))]
     UnexpectedToken {
         token: String,
+    },
+    #[snafu(display("TTL option '{}' need a following valid time", ttl_type))]
+    TTLMissTime {
+        #[snafu(source(from(ParseError, Box::new)))]
+        source: Box<ParseError>,
+        ttl_type: String,
     },
 }
 pub struct Tokens<'a> {
@@ -116,9 +122,13 @@ mod operand {
     use std::str::FromStr;
 
     use common_base::bytes::{Bytes, StringBytes};
-    use snafu::OptionExt as _;
+    use common_base::timestamp::timestamp_ms;
+    use snafu::{OptionExt as _, ResultExt};
 
-    use super::{InvalidValueOfTypeSnafu, MismatchedKeywordSnafu, MissKeySnafu, Parser, Tokens};
+    use super::{
+        alt, optional, InvalidValueOfTypeSnafu, MismatchedKeywordSnafu, MissKeySnafu, Parser,
+        TTLMissTimeSnafu, Tokens,
+    };
 
     /// expect a keyword(ignore case)
     pub fn keyword<'a>(ident: &str) -> impl Parser<'a, Output = StringBytes> {
@@ -185,6 +195,45 @@ mod operand {
                 }
             }
             None => MissKeySnafu.fail(),
+        }
+    }
+
+    pub enum TTLOption {
+        TTL(u64),
+        KeepTTL,
+    }
+    pub fn ttl<'a>() -> impl Parser<'a, Output = TTLOption> {
+        move |s: &mut Tokens<'a>| {
+            let ttl_type = optional(alt((
+                keyword("EX"),
+                keyword("PX"),
+                keyword("EXAT"),
+                keyword("PXAT"),
+                keyword("KEEPTTL"),
+            )))
+            .parse(s)
+            .unwrap();
+            if let Some(ttl_type) = ttl_type {
+                let ttl = value_of_type::<u64>().parse(s).context(TTLMissTimeSnafu {
+                    ttl_type: ttl_type.clone(),
+                })?;
+                Ok(match ttl_type.as_utf8() {
+                    "EX" => TTLOption::TTL(ttl * 1000),
+                    "PX" => TTLOption::TTL(ttl),
+                    "PXAT" => TTLOption::TTL(ttl - timestamp_ms()),
+                    "EXAT" => TTLOption::TTL(ttl * 1000 - timestamp_ms()),
+                    _ => unreachable!(),
+                })
+            } else {
+                MismatchedKeywordSnafu {
+                    expected: "EX | PX | EXAT | PXAT | KEEPTTL",
+                    actual: s
+                        .peek()
+                        .map(|s| StringBytes::new(s.clone()).into())
+                        .unwrap_or("".to_string()),
+                }
+                .fail()
+            }
         }
     }
 }

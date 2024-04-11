@@ -14,14 +14,16 @@
 
 use bytes::Bytes;
 use common_base::bytes::StringBytes;
-use redis_protocol::resp3::types::BytesFrame;
+use redis_protocol::resp3::types::{BytesFrame, FrameKind};
 use roxy::datatypes::string::{RedisString, StringSetArgs, StringSetArgsBuilder, StringSetType};
 use roxy::storage::Storage;
 use snafu::ResultExt;
 
 use super::{Command, CommandId, CommandInstance};
 use crate::error::{FailInStorageSnafu, InvalidCmdSyntaxSnafu, Result};
-use crate::parser::{chain, key, keyword, optional, string, value_of_type, Parser, Tokens};
+use crate::parser::{
+    chain, key, keyword, optional, string, ttl, value_of_type, Parser, TTLOption, Tokens,
+};
 
 pub struct SetArgs {
     key: Bytes,
@@ -50,35 +52,43 @@ impl CommandInstance for Set {
     }
 
     fn parse(&mut self, input: Vec<Bytes>) -> Result<()> {
+        let mut set_args_builder = StringSetArgsBuilder::default();
         let mut tokens = Tokens::new(&input[..]);
         // skip the command name which is already ensured by strum
         tokens.advance();
-        let context = chain(key(), string())
+
+        let (key, value) = chain(key(), string())
             .parse(&mut tokens)
-            .context(InvalidCmdSyntaxSnafu { cmd_id: self.id() });
-        let (key, value) = context?;
+            .context(InvalidCmdSyntaxSnafu { cmd_id: self.id() })?;
+
         // TODO: Add permutation parser
         let set_type = optional(value_of_type::<StringSetType>())
             .parse(&mut tokens)
             .unwrap();
+        set_args_builder.set_type(set_type.unwrap_or(StringSetType::NONE));
+
         let get = optional(keyword("GET"))
             .parse(&mut tokens)
             .unwrap()
             .is_some();
+        set_args_builder.get(get);
 
-        let string_set_args = StringSetArgsBuilder::default()
-            .set_type(set_type.unwrap_or(StringSetType::NONE))
-            .get(get)
-            .build()
-            .unwrap();
+        let ttl = optional(ttl()).parse(&mut tokens).unwrap();
+        if let Some(ttl) = ttl {
+            match ttl {
+                TTLOption::TTL(ttl) => set_args_builder.ttl(ttl),
+                TTLOption::KeepTTL => set_args_builder.keep_ttl(true),
+            };
+        }
 
+        let set_args = set_args_builder.build().unwrap();
         tokens
             .expect_eot()
             .context(InvalidCmdSyntaxSnafu { cmd_id: self.id() })?;
         self.args = Some(SetArgs {
             key: key.into(),
             value,
-            set_args: string_set_args,
+            set_args,
         });
         Ok(())
     }
@@ -102,22 +112,10 @@ impl CommandInstance for Set {
             }
         };
 
-        if args.set_args.get {
-            if let Some(old) = opt_old {
-                BytesFrame::BlobString {
-                    data: old.into(),
-                    attributes: None,
-                }
-            } else {
-                BytesFrame::Null {}
-            }
-        } else if opt_old.is_some() {
-            BytesFrame::SimpleString {
-                data: "OK".into(),
-                attributes: None,
-            }
-        } else {
-            BytesFrame::Null
+        match opt_old {
+            Some(old) if args.set_args.get => (FrameKind::BlobString, old).try_into().unwrap(),
+            Some(_) => (FrameKind::SimpleString, "OK").try_into().unwrap(),
+            None => BytesFrame::Null,
         }
     }
 }
