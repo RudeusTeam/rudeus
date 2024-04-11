@@ -30,21 +30,10 @@ pub struct RudeusConfig {
 
 fn main() -> Result<(), Box<dyn Error>> {
     init_global_runtimes(None, None, None);
+    let config_path = "example/example.toml";
+    let config_str = std::fs::read_to_string(config_path)?;
 
-    let config: RudeusConfig = toml::from_str(
-        r#"
-        [logging]
-        stdout = true
-        level = "debug"
-        [server]
-        bind = "127.0.0.1:6666"
-        [storage]
-        path = "/tmp/roxy"
-        secondary_path = "/tmp/roxy2"
-        [storage.rocksdb]
-        block_size = 4096
-    "#,
-    )?;
+    let config: RudeusConfig = toml::from_str(&config_str)?;
     let _log_workers = log::init(&config.logging);
 
     let mut storage = Storage::try_new(config.storage)?;
