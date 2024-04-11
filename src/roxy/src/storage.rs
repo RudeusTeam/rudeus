@@ -281,18 +281,13 @@ pub fn setup_test_storage_for_ut() -> Storage {
         .to_str()
         .unwrap()
         .to_string();
-    let storage_config: StorageConfig = toml::from_str(
-        format!(
-            r#"
-    path = "{}"
-    secondary_path = "{}"
-    rocksdb = {{ block_size = 4096 }}
-    "#,
-            dbpath, secondary_path
-        )
-        .as_str(),
-    )
-    .unwrap();
+    let storage_config = StorageConfig {
+        dbpath,
+        secondary_path,
+        _open_mode: OpenMode::Default,
+        _backup_path: None,
+        rocksdb: RocksDBConfig { block_size: 4096 },
+    };
     let mut storage = Storage::try_new(storage_config).unwrap();
     storage.open(OpenMode::Default).unwrap();
     storage

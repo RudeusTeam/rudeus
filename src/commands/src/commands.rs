@@ -29,8 +29,8 @@ pub static COMMANDS_TABLE: Lazy<HashMap<CommandId, Command>> = Lazy::new(|| {
     table
 });
 
-/// ```                                                                     
-/// COMMAND: string => Command ID => Command ──create──► CommandInstance
+/// ```plaintext                            
+/// COMMAND: string => Command ID => Command --create--> CommandInstance
 /// ```
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, strum::Display, strum::EnumString)]
 #[strum(serialize_all = "lowercase")]
