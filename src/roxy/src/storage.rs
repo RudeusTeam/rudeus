@@ -263,7 +263,16 @@ impl Drop for Storage {
 
 #[cfg(test)]
 pub fn setup_test_storage_for_ut() -> Storage {
-    let dbpath_temp = tempfile::tempdir().unwrap();
+    // Tmpdir set by env var
+    let testdir = std::env::var("RUDEUS_TESTDIR");
+    let dbpath_temp = if let Ok(testdir) = testdir {
+        info!("Using testdir: {}", testdir);
+        tempfile::Builder::new()
+            .tempdir_in(testdir.as_str())
+            .unwrap()
+    } else {
+        tempfile::TempDir::new().unwrap()
+    };
     let dbpath = dbpath_temp.path().to_str().unwrap().to_string();
     let secondary_path = dbpath_temp
         .path()
