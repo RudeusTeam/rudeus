@@ -20,7 +20,7 @@ use roxy::storage::Storage;
 use snafu::ResultExt;
 
 use super::{Command, CommandId, CommandInstance};
-use crate::error::{FailInStorageSnafu, InvalidCmdSyntaxSnafu, Result};
+use crate::error::{InvalidCmdSyntaxSnafu, Result};
 use crate::parser::{
     chain, key, keyword, optional, string, ttl, value_of_type, Parser, TTLOption, Tokens,
 };
@@ -95,28 +95,22 @@ impl CommandInstance for Set {
 
     fn execute(mut self, storage: &Storage, namespace: Bytes) -> BytesFrame {
         let db = RedisString::new(storage, namespace.into());
-
         let args = self.args.take().unwrap();
         // TODO: handle ttl
 
-        let opt_old = match db
-            .set(args.key.into(), args.value.into(), &args.set_args)
-            .context(FailInStorageSnafu { cmd_id: self.id() })
-        {
-            Ok(opt_old) => opt_old,
-            Err(err) => {
-                return BytesFrame::SimpleError {
-                    data: err.to_string().into(),
-                    attributes: None,
-                }
-            }
-        };
-
-        match opt_old {
-            Some(old) if args.set_args.get => (FrameKind::BlobString, old).try_into().unwrap(),
-            Some(_) => (FrameKind::SimpleString, "OK").try_into().unwrap(),
-            None => BytesFrame::Null,
-        }
+        let (Ok(res) | Err(res)) = db
+            .set(args.key, args.value, &args.set_args)
+            .map(|opt_old| match opt_old {
+                Some(old) if args.set_args.get => (FrameKind::BlobString, old).try_into().unwrap(),
+                Some(_) => (FrameKind::SimpleString, "OK").try_into().unwrap(),
+                None => BytesFrame::Null,
+            })
+            .map_err(|err| {
+                (FrameKind::SimpleError, err.to_string())
+                    .try_into()
+                    .unwrap()
+            });
+        res
     }
 }
 

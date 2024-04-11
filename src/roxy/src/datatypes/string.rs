@@ -142,17 +142,19 @@ impl<'s> RedisString<'s> {
         Ok(raw_value)
     }
 
-    pub fn get(&self, user_key: Bytes) -> Result<Option<Bytes>> {
-        let ns_key = self.database.encode_namespace_prefix(user_key);
+    pub fn get(&self, user_key: impl Into<Bytes>) -> Result<Option<Bytes>> {
+        let ns_key = self.database.encode_namespace_prefix(user_key.into());
         self.get_value(ns_key)
     }
 
     pub fn set(
         &self,
-        user_key: Bytes,
-        value: Bytes,
+        user_key: impl Into<Bytes>,
+        value: impl Into<Bytes>,
         args: &StringSetArgs,
     ) -> Result<Option<Bytes>> {
+        let user_key: Bytes = user_key.into();
+        let value: Bytes = value.into();
         let mut expire = 0u64;
         let ns_key = self.database.encode_namespace_prefix(user_key);
         let _guard = self.database.lock_key(ns_key.clone());
