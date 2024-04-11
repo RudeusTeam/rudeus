@@ -14,8 +14,8 @@
 
 use std::sync::{Arc, Mutex, Once};
 
-use derive_builder::Builder;
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_error::ErrorLayer;
 pub use tracing_log::log::*;
@@ -24,12 +24,14 @@ use tracing_subscriber::fmt::Layer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{filter, Registry};
 
-#[derive(Debug, Builder)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LoggingOption {
+    #[serde(rename = "stdout")]
     append_stdout: bool,
-    #[builder(default)]
+    #[serde(default)]
     level: Option<String>,
 }
+
 const DEFAULT_LOG_TARGETS: &str = "info";
 
 pub fn init(opts: &LoggingOption) -> Vec<WorkerGuard> {
@@ -63,10 +65,10 @@ pub fn init_ut_logging() {
     static START: Once = Once::new();
     START.call_once(|| {
         let mut g = GLOBAL_UT_LOG_GUARDS.lock().unwrap();
-        let opts = LoggingOptionBuilder::default()
-            .append_stdout(true)
-            .build()
-            .unwrap();
+        let opts = LoggingOption {
+            append_stdout: true,
+            level: Some("debug".to_string()),
+        };
         *g = Some(init(&opts))
     });
 }

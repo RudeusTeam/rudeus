@@ -16,10 +16,12 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use common_base::bytes::Bytes;
+use common_base::lock_pool;
+use common_base::lock_pool::LockPool;
 use common_telemetry::log::info;
-use derive_builder::Builder;
 use parking_lot::RwLock;
 use rocksdb::{ReadOptions, WriteBatch, WriteOptions, DB};
+use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 use strum::VariantArray;
 
@@ -28,22 +30,29 @@ use crate::error::{
     Result, WriteToRocksDBSnafu,
 };
 
-#[derive(Builder, Debug, Clone)]
+const DEFAULT_BLOCK_SIZE: usize = 4096;
+
+fn default_block_size() -> usize {
+    DEFAULT_BLOCK_SIZE
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RocksDBConfig {
-    #[builder(default = "4096")]
+    #[serde(default = "default_block_size")]
     block_size: usize,
 }
 
-#[derive(Builder, Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StorageConfig {
+    #[serde(rename = "path")]
     dbpath: String,
-    #[builder(default)]
+    #[serde(default)]
     secondary_path: String,
-    #[builder(default)]
+    #[serde(default)]
     _open_mode: OpenMode,
-    #[builder(default)]
+    #[serde(default)]
     _backup_path: Option<String>,
-    rocks_db: RocksDBConfig,
+    rocksdb: RocksDBConfig,
 }
 
 #[derive(
@@ -56,7 +65,7 @@ pub enum ColumnFamilyId {
     Metadata,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub enum OpenMode {
     #[default]
     Default,
@@ -75,7 +84,7 @@ pub struct Storage {
 
     /// This RwLock is used to allow multiple readers or one writer who may close the database
     db_lock: RwLock<()>,
-    // _phantom: std::marker::PhantomData<&'db ()>,
+    lock_pool: LockPool,
 }
 
 // mainly come from KVRocks
@@ -87,6 +96,7 @@ impl Storage {
             db_lock: RwLock::new(()),
             db_closing: true,
             _env: env,
+            lock_pool: LockPool::new(16),
             config,
         })
     }
@@ -107,7 +117,7 @@ impl Storage {
         table_options.set_metadata_block_size(4096);
         table_options.set_data_block_index_type(rocksdb::DataBlockIndexType::BinaryAndHash);
         table_options.set_data_block_hash_ratio(0.75);
-        table_options.set_block_size(self.config.rocks_db.block_size);
+        table_options.set_block_size(self.config.rocksdb.block_size);
         table_options
     }
 
@@ -236,6 +246,10 @@ impl Storage {
             .context(WriteToRocksDBSnafu)
     }
 
+    pub fn lock_key(&self, key: Bytes) -> lock_pool::MutexGuard {
+        self.lock_pool.lock(key)
+    }
+
     pub(crate) fn db(&self) -> &DB {
         unsafe { self.db.assume_init_ref() }
     }
@@ -249,7 +263,16 @@ impl Drop for Storage {
 
 #[cfg(test)]
 pub fn setup_test_storage_for_ut() -> Storage {
-    let dbpath_temp = tempfile::tempdir().unwrap();
+    // Tmpdir set by env var
+    let testdir = std::env::var("RUDEUS_TESTDIR");
+    let dbpath_temp = if let Ok(testdir) = testdir {
+        info!("Using testdir: {}", testdir);
+        tempfile::Builder::new()
+            .tempdir_in(testdir.as_str())
+            .unwrap()
+    } else {
+        tempfile::TempDir::new().unwrap()
+    };
     let dbpath = dbpath_temp.path().to_str().unwrap().to_string();
     let secondary_path = dbpath_temp
         .path()
@@ -258,14 +281,19 @@ pub fn setup_test_storage_for_ut() -> Storage {
         .to_str()
         .unwrap()
         .to_string();
-    let mut storage = Storage::try_new(StorageConfig {
-        dbpath,
-        secondary_path,
-        _open_mode: OpenMode::Default,
-        _backup_path: None,
-        rocks_db: RocksDBConfigBuilder::default().build().unwrap(),
-    })
+    let storage_config: StorageConfig = toml::from_str(
+        format!(
+            r#"
+    path = "{}"
+    secondary_path = "{}"
+    rocksdb = {{ block_size = 4096 }}
+    "#,
+            dbpath, secondary_path
+        )
+        .as_str(),
+    )
     .unwrap();
+    let mut storage = Storage::try_new(storage_config).unwrap();
     storage.open(OpenMode::Default).unwrap();
     storage
 }

@@ -6,10 +6,10 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-derive_builder.workspace = true
-once_cell.workspace      = true
-tracing                  = "0.1"
-tracing-appender         = "0.2"
-tracing-error            = "0.2"
-tracing-log              = "0.2"
-tracing-subscriber       = { version = "0.3", features = ["env-filter"] }
+once_cell.workspace = true
+serde.workspace     = true
+tracing             = "0.1"
+tracing-appender    = "0.2"
+tracing-error       = "0.2"
+tracing-log         = "0.2"
+tracing-subscriber  = { version = "0.3", features = ["env-filter"] }

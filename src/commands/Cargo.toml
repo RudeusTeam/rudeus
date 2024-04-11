@@ -1,7 +1,16 @@
 [package]
-name = "commands"
+name              = "commands"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bytes.workspace          = true
+once_cell.workspace      = true
+paste.workspace          = true
+redis-protocol.workspace = true
+snafu.workspace          = true
+strum.workspace          = true
+
+common-base.workspace = true
+roxy.workspace        = true

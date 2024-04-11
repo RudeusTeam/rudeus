@@ -12,36 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use common_runtime::runtime::Runtime;
-use common_telemetry::log::{self, info, LoggingOptionBuilder};
-use server::connection::Connection;
-use tokio::net::TcpListener;
+use std::error::Error;
+use std::sync::Arc;
 
-async fn start() {
-    let logging_option = LoggingOptionBuilder::default()
-        .append_stdout(true)
-        .level(Some("debug".to_owned()))
-        .build()
-        .unwrap();
-    let _log_workers = log::init(&logging_option);
+use common_runtime::global_runtime::{block_on_network, init_global_runtimes};
+use common_telemetry::log::{self, LoggingOption};
+use roxy::storage::{Storage, StorageConfig};
+use serde::{Deserialize, Serialize};
+use server::server::{Server, ServerConfig};
 
-    info!("Rudeus listening on: {}", "127.0.0.1:6379");
-    let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
-    loop {
-        let stream = listener.accept().await.map(|(socket, _)| socket).unwrap();
-        tokio::spawn(async move {
-            let mut conn = Connection::new(stream);
-            conn.start().await
-        });
-    }
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RudeusConfig {
+    logging: LoggingOption,
+    server: ServerConfig,
+    storage: StorageConfig,
 }
 
-fn main() {
-    let rt = Runtime::builder()
-        .worker_threads(4)
-        .runtime_name("Network")
-        .thread_name("network")
-        .build()
-        .expect("Failed to build runtime");
-    rt.block_on(start());
+fn main() -> Result<(), Box<dyn Error>> {
+    init_global_runtimes(None, None, None);
+    let config_path = "example/example.toml";
+    let config_str = std::fs::read_to_string(config_path)?;
+
+    let config: RudeusConfig = toml::from_str(&config_str)?;
+    let _log_workers = log::init(&config.logging);
+
+    let mut storage = Storage::try_new(config.storage)?;
+    storage.open(roxy::storage::OpenMode::Default)?;
+    let server = Server::new(Arc::new(storage), config.server);
+
+    block_on_network(server.start());
+    Ok(())
 }

@@ -14,10 +14,13 @@ bytes.workspace          = true
 futures.workspace        = true
 redis-protocol.workspace = true
 roxy.workspace           = true
+serde.workspace          = true
 snafu.workspace          = true
 tokio-util.workspace     = true
 tokio.workspace          = true
+toml.workspace           = true
 
+commands.workspace         = true
 common-base.workspace      = true
 common-runtime.workspace   = true
 common-telemetry.workspace = true

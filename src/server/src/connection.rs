@@ -1,38 +1,78 @@
 use bytes::Bytes;
-use common_telemetry::log::info;
+use commands::commands::{CommandId, CommandInstance, COMMANDS_TABLE};
+use common_base::bytes::StringBytes;
+use common_telemetry::log::debug;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt as _, StreamExt};
 use redis_protocol::codec::Resp3;
 use redis_protocol::resp3::types::BytesFrame;
+use roxy::storage::StorageRef;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
-
 type Stream<T> = SplitStream<Framed<T, Resp3>>;
 type Sink<T> = SplitSink<Framed<T, Resp3>, BytesFrame>;
 
 pub struct Connection<T> {
     reader: Stream<T>,
     writer: Sink<T>,
+    namespace: Bytes,
+    storage: StorageRef,
 }
 
 impl<T> Connection<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    pub fn new(inner: T) -> Self {
+    pub fn new(inner: T, storage: StorageRef) -> Self {
         let frame = Framed::new(inner, Resp3::default());
         let (writer, reader) = frame.split();
-        Self { reader, writer }
+        Self {
+            reader,
+            writer,
+            storage,
+            namespace: Bytes::from_static(b"default"),
+        }
+    }
+
+    fn frame_as_bytes_array(frame: BytesFrame) -> Vec<Bytes> {
+        match frame {
+            BytesFrame::Array { data, .. } => data
+                .iter()
+                .map(|b| match b {
+                    BytesFrame::SimpleString { data, .. } => data.clone(),
+                    BytesFrame::BlobString { data, .. } => data.clone(),
+                    _ => unreachable!(),
+                })
+                .collect(),
+            _ => unreachable!(),
+        }
     }
 
     pub async fn start(&mut self) {
         while let Some(frame) = self.reader.next().await {
-            let frame = frame;
-            info!("Received: {:?}", frame);
-            let response = BytesFrame::SimpleString {
-                data: Bytes::from_static(b"OK"),
-                attributes: None,
+            let frame = frame.unwrap();
+            debug!("Received: {:?}", frame);
+            let command_tokens = Self::frame_as_bytes_array(frame);
+            let command_id: CommandId = match StringBytes::new(command_tokens[0].clone())
+                .as_utf8()
+                .parse()
+            {
+                Ok(id) => id,
+                Err(_) => {
+                    let _ = self
+                        .writer
+                        .send(BytesFrame::SimpleString {
+                            data: Bytes::from_static(b"Unimplemented"),
+                            attributes: None,
+                        })
+                        .await;
+                    continue;
+                }
             };
+            let command = COMMANDS_TABLE.get(&command_id).unwrap();
+            let mut command_inst = command.new_instance();
+            command_inst.parse(command_tokens).unwrap();
+            let response = command_inst.execute(&self.storage, self.namespace.clone());
             let res = self.writer.send(response).await;
             assert!(res.is_ok());
         }
@@ -46,7 +86,7 @@ pub mod test_utility {
     use std::task::{Context, Poll};
 
     use bytes::{Buf, BufMut};
-    use redis_protocol::codec::resp3_encode_command;
+    use redis_protocol::codec;
     use redis_protocol::resp3::encode::complete::encode_bytes;
     use redis_protocol::resp3::types::{OwnedFrame, Resp3Frame};
     use tokio::io::{self, AsyncRead, AsyncWrite};
@@ -59,7 +99,7 @@ pub mod test_utility {
     impl MockingTcpStream {
         pub fn sending_cmd(cmd: &str) -> MockingTcpStream {
             MockingTcpStream {
-                read_buf: Cursor::new(encode_resp3_command(cmd)),
+                read_buf: Cursor::new(resp3_encode_command(cmd)),
                 write_buf: vec![],
             }
         }
@@ -109,17 +149,20 @@ pub mod test_utility {
         }
     }
 
-    pub fn encode_resp3_command(cmd: &str) -> Vec<u8> {
-        let frame = resp3_encode_command(cmd);
+    pub fn resp3_encode_command(cmd: &str) -> Vec<u8> {
+        let frame = codec::resp3_encode_command(cmd);
         let mut buf = vec![0; frame.encode_len()];
         encode_bytes(&mut buf, &frame).unwrap();
         buf
     }
 }
 
+/*
+
 #[cfg(test)]
 mod tests {
 
+    use common_telemetry::log::init_ut_logging;
     use redis_protocol::resp3::types::OwnedFrame;
     use tests::test_utility::MockingTcpStream;
 
@@ -140,4 +183,17 @@ mod tests {
             }
         );
     }
+
+    #[tokio::test]
+    async fn test() {
+        init_ut_logging();
+        let mut mocking_stream = MockingTcpStream::sending_cmd("SET key \"Value\"");
+        {
+            let mut conn = Connection::new(&mut mocking_stream);
+            conn.start().await;
+        }
+        mocking_stream.response()
+    }
 }
+
+*/

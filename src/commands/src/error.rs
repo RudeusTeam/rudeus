@@ -12,5 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod connection;
-pub mod server;
+use snafu::Snafu;
+
+use crate::commands::CommandId;
+use crate::parser::ParseError;
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
+pub enum Error {
+    #[snafu(display("Invalid '{}' command", cmd_id))]
+    InvalidCmdSyntax {
+        source: ParseError,
+        cmd_id: CommandId,
+    },
+    #[snafu(display("Fail to execute command '{}' because of storage error", cmd_id))]
+    FailInStorage {
+        source: roxy::error::Error,
+        cmd_id: CommandId,
+    },
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

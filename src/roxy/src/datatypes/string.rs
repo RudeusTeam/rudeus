@@ -21,16 +21,19 @@ use derive_builder::Builder;
 use rocksdb::WriteOptions;
 use snafu::ResultExt;
 
-use crate::database::{Database, GetOptions};
+use crate::database::{Database, GetOptions, Roxy};
 use crate::error::{EncodeStringValueSnafu, Result};
 use crate::metadata::{Metadata, RedisType};
+use crate::storage::Storage;
 
 pub struct StringPair {
     _key: Bytes,
     _value: Bytes,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, strum::EnumString, Debug)]
+#[strum(ascii_case_insensitive)]
+#[strum(serialize_all = "UPPERCASE")]
 pub enum StringSetType {
     #[default]
     NONE,
@@ -38,15 +41,22 @@ pub enum StringSetType {
     XX,
 }
 
-#[derive(Builder, Clone)]
+#[derive(Builder, Clone, Debug)]
 pub struct StringSetArgs {
-    ttl: u64,
     #[builder(default)]
-    set_type: StringSetType,
+    pub ttl: u64,
     #[builder(default)]
-    get: bool,
+    pub set_type: StringSetType,
     #[builder(default)]
-    keep_ttl: bool,
+    pub get: bool,
+    #[builder(default)]
+    pub keep_ttl: bool,
+}
+
+impl StringSetArgs {
+    pub fn set_type(&self) -> StringSetType {
+        self.set_type
+    }
 }
 
 pub enum StringLCSType {
@@ -94,16 +104,15 @@ pub struct StringLCSIdxResult {
 /// │unused(4bits)-> <- datatype(4bits)│  (8bytes)  │ (Nbytes) │
 /// └──────────────────────────────────┴────────────┴──────────┘
 /// ```
-pub struct RedisString<Database> {
-    database: Database,
+pub struct RedisString<'s> {
+    database: Roxy<'s>,
 }
 
-impl<D> RedisString<D>
-where
-    D: Database,
-{
-    pub fn new(database: D) -> Self {
-        Self { database }
+impl<'s> RedisString<'s> {
+    pub fn new(storage: &'s Storage, namespace: Bytes) -> Self {
+        Self {
+            database: Roxy::new(storage, namespace, RedisType::String),
+        }
     }
 
     fn get_value(&self, ns_key: Bytes) -> Result<Option<Bytes>> {
@@ -133,12 +142,19 @@ where
         Ok(raw_value)
     }
 
-    pub fn get(&self, user_key: Bytes) -> Result<Option<Bytes>> {
-        let ns_key = self.database.encode_namespace_prefix(user_key);
+    pub fn get(&self, user_key: impl Into<Bytes>) -> Result<Option<Bytes>> {
+        let ns_key = self.database.encode_namespace_prefix(user_key.into());
         self.get_value(ns_key)
     }
 
-    pub fn set(&self, user_key: Bytes, value: Bytes, args: StringSetArgs) -> Result<Option<Bytes>> {
+    pub fn set(
+        &self,
+        user_key: impl Into<Bytes>,
+        value: impl Into<Bytes>,
+        args: &StringSetArgs,
+    ) -> Result<Option<Bytes>> {
+        let user_key: Bytes = user_key.into();
+        let value: Bytes = value.into();
         let mut expire = 0u64;
         let ns_key = self.database.encode_namespace_prefix(user_key);
         let _guard = self.database.lock_key(ns_key.clone());
@@ -203,24 +219,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use common_telemetry::log::init_ut_logging;
 
     use super::*;
-    use crate::database::Roxy;
     use crate::storage::setup_test_storage_for_ut;
 
     #[test]
     fn test_set_and_get() {
         init_ut_logging();
         let storage = setup_test_storage_for_ut();
-        let storage = Arc::new(storage);
-        let redis_string_db = RedisString::new(Roxy::new(
-            storage,
-            Bytes::from("string".as_bytes()),
-            RedisType::String,
-        ));
+        let redis_string_db = RedisString::new(&storage, Bytes::from("ns".as_bytes()));
 
         let user_key = Bytes::from("user_key".as_bytes());
         let value = Bytes::from("value".as_bytes());
@@ -229,7 +238,7 @@ mod tests {
             .get(true)
             .build()
             .unwrap();
-        redis_string_db.set(user_key.clone(), value, args).unwrap();
+        redis_string_db.set(user_key.clone(), value, &args).unwrap();
 
         let result = redis_string_db.get(user_key).unwrap().unwrap();
         println!(
