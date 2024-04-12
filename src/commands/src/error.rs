@@ -14,7 +14,7 @@
 
 use snafu::Snafu;
 
-use crate::commands::CommandId;
+use crate::commands::CommandIdRef;
 use crate::parser::ParseError;
 
 #[derive(Debug, Snafu)]
@@ -23,12 +23,12 @@ pub enum Error {
     #[snafu(display("Invalid '{}' command", cmd_id))]
     InvalidCmdSyntax {
         source: ParseError,
-        cmd_id: CommandId,
+        cmd_id: CommandIdRef<'static>,
     },
     #[snafu(display("Fail to execute command '{}' because of storage error", cmd_id))]
     FailInStorage {
         source: roxy::error::Error,
-        cmd_id: CommandId,
+        cmd_id: CommandIdRef<'static>,
     },
 }
 

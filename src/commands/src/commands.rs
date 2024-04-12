@@ -23,49 +23,130 @@ use crate::error::Result;
 
 mod string;
 
-pub static COMMANDS_TABLE: Lazy<HashMap<CommandId, Command>> = Lazy::new(|| {
-    let mut table = HashMap::new();
-    table.insert(CommandId::SET, Command::new(CommandId::SET));
-    table
-});
-
-/// ```plaintext                            
-/// COMMAND: string => Command ID => Command --create--> CommandInstance
-/// ```
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, strum::Display, strum::EnumString)]
-#[strum(serialize_all = "lowercase")]
-#[strum(ascii_case_insensitive)]
-pub enum CommandId {
-    SET,
+// pub type GlobalCommandTable = HashMap<CommandId, Command>;
+#[derive(Default)]
+pub struct GlobalCommandTable {
+    table: HashMap<CommandIdRef<'static>, Command>,
 }
 
-pub struct Command {
-    /// command id i.e. command name
-    id: CommandId,
-}
-
-impl Command {
-    pub fn new(cmd_id: CommandId) -> Self {
-        Self { id: cmd_id }
+impl GlobalCommandTable {
+    pub fn register<T: CommandTypeInfo>(&mut self) {
+        let cmd = Command::new::<T>();
+        self.table.insert(cmd.id, cmd);
     }
 
-    pub fn new_instance(&self) -> impl CommandInstance {
-        match self.id {
-            CommandId::SET => string::Set::new(),
+    pub fn get(&self, cmd_id: &CommandId) -> Option<&Command> {
+        self.table.get(cmd_id.to_ascii_uppercase().as_str())
+    }
+
+    pub fn new() -> GlobalCommandTable {
+        GlobalCommandTable {
+            table: HashMap::new(),
         }
     }
 }
 
-pub trait CommandInstance {
-    fn get_attr(&self) -> &Command;
+macro_rules! register_mod {
+    ($t:ident, $($mod:ident),*) => {
+        $(
+            $mod::register(&mut $t)
+        );*
+    };
+}
 
-    fn id(&self) -> CommandId {
-        self.get_attr().id
+#[macro_export]
+macro_rules! register {
+    ($($cmd:ident),*) => {
+        pub(in $crate::commands) fn register(table: &mut GlobalCommandTable) {
+            static START: Once = Once::new();
+            START.call_once(move || {
+                $(
+                    table.register::<$cmd>();
+                )*
+            });
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! command_type_stub {
+    ($cmd_id:literal) => {
+        fn command() -> &'static Command {
+            static STUB: Lazy<Command> = Lazy::new(|| Command::new_stub($cmd_id));
+            &STUB
+        }
+    };
+}
+
+pub static GLOBAL_COMMANDS_TABLE: Lazy<GlobalCommandTable> = Lazy::new(|| {
+    let mut table = Default::default();
+    register_mod!(table, string, string);
+    table
+});
+
+/// ```plaintext                            
+/// Command ID:&'static str => Command --create--> CommandInstance
+/// ```
+
+pub type CommandId = str;
+pub type CommandIdRef<'a> = &'a CommandId;
+
+type CreateInstanceFn = fn() -> Box<dyn CommandInstance>;
+
+#[derive(Clone)]
+pub struct Command {
+    /// command id i.e. command name
+    id: CommandIdRef<'static>,
+    create_instance_fn: CreateInstanceFn,
+}
+impl Command {
+    /// [`dummy_create_inst`] is a dummy function to satisfy the type of `CommandInstance`
+    /// and prevent cyclic dependency between [`create_inst`] and [`new`] of CommandInst
+    pub(crate) fn dummy_create_inst() -> Box<dyn CommandInstance> {
+        unreachable!()
     }
 
+    pub fn create_instance(&self) -> Box<dyn CommandInstance> {
+        (self.create_instance_fn)()
+    }
+}
+
+impl Command {
+    pub(crate) fn new<F: CommandTypeInfo>() -> Self {
+        let mut cmd = F::command().clone();
+        cmd.create_instance_fn = F::boxed;
+        cmd
+    }
+
+    pub(crate) fn new_stub(cmd_id: CommandIdRef<'static>) -> Self {
+        Self {
+            id: cmd_id,
+            create_instance_fn: Self::dummy_create_inst,
+        }
+    }
+}
+
+pub trait CommandInstance: Send {
     /// Parse an array of Bytes, since client can only send RESP3 Array frames
-    fn parse(&mut self, input: Vec<Bytes>) -> Result<()>;
-    fn execute(self, storage: &Storage, namespace: Bytes) -> BytesFrame;
+    fn parse(&mut self, input: &[Bytes]) -> Result<()>;
+    fn execute(&mut self, storage: &Storage, namespace: Bytes) -> BytesFrame;
+}
+
+pub trait CommandTypeInfo: CommandInstance + Sized + 'static {
+    /// Tell the system how to create instance
+    fn new() -> Self;
+
+    /// Static typing infomation of command, which is used to register the command
+    fn command() -> &'static Command;
+
+    /// Boxed version of `new`
+    fn boxed() -> Box<dyn CommandInstance> {
+        Box::new(Self::new())
+    }
+
+    fn id() -> CommandIdRef<'static> {
+        Self::command().id
+    }
 }
 
 #[cfg(test)]
