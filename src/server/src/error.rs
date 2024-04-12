@@ -12,8 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(iter_collect_into)]
+use snafu::Snafu;
 
-pub mod connection;
-pub mod error;
-pub mod server;
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub(crate)))]
+pub enum Error {
+    #[snafu(display("Unknown command '{}'", cmd))]
+    UnknownCommand { cmd: String },
+    #[snafu(transparent)]
+    ExecuteError { source: commands::error::Error },
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

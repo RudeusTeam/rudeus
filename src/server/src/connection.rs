@@ -9,6 +9,9 @@ use redis_protocol::resp3::types::{BytesFrame, FrameKind};
 use roxy::storage::StorageRef;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
+
+use crate::error::{Result, UnknownCommandSnafu};
+
 type Stream<T> = SplitStream<Framed<T, Resp3>>;
 type Sink<T> = SplitSink<Framed<T, Resp3>, BytesFrame>;
 
@@ -57,31 +60,34 @@ where
             let frame = frame.unwrap();
             debug!("Received: {:?}", frame);
             self.frame_as_bytes_array(frame);
-            let response = self.execute_command(&self.command_tokens_buf[..]);
+            let response = self.to_response(self.execute_command(&self.command_tokens_buf[..]));
             let res = self.writer.send(response).await;
             assert!(res.is_ok());
         }
     }
+    fn to_response(&self, response: Result<BytesFrame>) -> BytesFrame {
+        match response {
+            Ok(frame) => frame,
+            Err(e) => {
+                debug!("Error: {:?}", e);
+                (FrameKind::SimpleError, e.to_string()).try_into().unwrap()
+            }
+        }
+    }
 
-    fn execute_command(&self, command_tokens: &[Bytes]) -> BytesFrame {
+    fn execute_command(&self, command_tokens: &[Bytes]) -> Result<BytesFrame> {
         if let Some(c) = command_tokens.first() {
             let s = StringBytes::new(c.clone());
             if let Some(command) = GLOBAL_COMMANDS_TABLE.get(s.as_utf8()) {
                 let mut command_inst = command.create_instance();
-                command_inst.parse(command_tokens).unwrap();
-                command_inst.execute(&self.storage, self.namespace.clone())
+                // Skip the first token, which is the command name
+                command_inst.parse(&command_tokens[1..]).unwrap();
+                Ok(command_inst.execute(&self.storage, self.namespace.clone())?)
             } else {
-                (
-                    FrameKind::SimpleError,
-                    format!("unknown command {}", s.as_utf8()),
-                )
-                    .try_into()
-                    .unwrap()
+                UnknownCommandSnafu { cmd: s.as_utf8() }.fail()
             }
         } else {
-            (FrameKind::SimpleError, "empty command")
-                .try_into()
-                .unwrap()
+            UnknownCommandSnafu { cmd: "" }.fail()
         }
     }
 }

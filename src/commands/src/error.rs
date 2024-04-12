@@ -18,7 +18,7 @@ use crate::commands::CommandIdRef;
 use crate::parser::ParseError;
 
 #[derive(Debug, Snafu)]
-#[snafu(visibility(pub))]
+#[snafu(visibility(pub(crate)))]
 pub enum Error {
     #[snafu(display("Invalid '{}' command", cmd_id))]
     InvalidCmdSyntax {
@@ -32,4 +32,4 @@ pub enum Error {
     },
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;

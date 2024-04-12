@@ -80,14 +80,12 @@ macro_rules! command_type_stub {
 
 pub static GLOBAL_COMMANDS_TABLE: Lazy<GlobalCommandTable> = Lazy::new(|| {
     let mut table = Default::default();
-    register_mod!(table, string, string);
+    register_mod!(table, string);
     table
 });
 
-/// ```plaintext                            
-/// Command ID:&'static str => Command --create--> CommandInstance
-/// ```
-
+/// Mapping relationship between command id and command instance
+/// [`CommandId`] => [`Command`] --create--> [`CommandInstance`]
 pub type CommandId = str;
 pub type CommandIdRef<'a> = &'a CommandId;
 
@@ -100,12 +98,6 @@ pub struct Command {
     create_instance_fn: CreateInstanceFn,
 }
 impl Command {
-    /// [`dummy_create_inst`] is a dummy function to satisfy the type of `CommandInstance`
-    /// and prevent cyclic dependency between [`create_inst`] and [`new`] of CommandInst
-    pub(crate) fn dummy_create_inst() -> Box<dyn CommandInstance> {
-        unreachable!()
-    }
-
     pub fn create_instance(&self) -> Box<dyn CommandInstance> {
         (self.create_instance_fn)()
     }
@@ -119,17 +111,22 @@ impl Command {
     }
 
     pub(crate) fn new_stub(cmd_id: CommandIdRef<'static>) -> Self {
+        /// [`dummy_create_inst`] is a dummy function to satisfy the type of `CommandInstance`
+        /// and prevent cyclic dependency between [`create_inst`] and [`new`] of CommandInst
+        fn dummy_create_inst() -> Box<dyn CommandInstance> {
+            unreachable!()
+        }
         Self {
             id: cmd_id,
-            create_instance_fn: Self::dummy_create_inst,
+            create_instance_fn: dummy_create_inst,
         }
     }
 }
 
 pub trait CommandInstance: Send {
-    /// Parse an array of Bytes, since client can only send RESP3 Array frames
+    /// Parse command arguments representing in an array of Bytes, since client can only send RESP3 Array frames
     fn parse(&mut self, input: &[Bytes]) -> Result<()>;
-    fn execute(&mut self, storage: &Storage, namespace: Bytes) -> BytesFrame;
+    fn execute(&mut self, storage: &Storage, namespace: Bytes) -> Result<BytesFrame>;
 }
 
 pub trait CommandTypeInfo: CommandInstance + Sized + 'static {
