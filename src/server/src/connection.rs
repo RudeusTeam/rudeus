@@ -1,14 +1,17 @@
 use bytes::Bytes;
-use commands::commands::{CommandId, CommandInstance, COMMANDS_TABLE};
+use commands::commands::GLOBAL_COMMANDS_TABLE;
 use common_base::bytes::StringBytes;
 use common_telemetry::log::debug;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt as _, StreamExt};
 use redis_protocol::codec::Resp3;
-use redis_protocol::resp3::types::BytesFrame;
+use redis_protocol::resp3::types::{BytesFrame, FrameKind};
 use roxy::storage::StorageRef;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
+
+use crate::error::{Result, UnknownCommandSnafu};
+
 type Stream<T> = SplitStream<Framed<T, Resp3>>;
 type Sink<T> = SplitSink<Framed<T, Resp3>, BytesFrame>;
 
@@ -17,6 +20,7 @@ pub struct Connection<T> {
     writer: Sink<T>,
     namespace: Bytes,
     storage: StorageRef,
+    command_tokens_buf: Vec<Bytes>,
 }
 
 impl<T> Connection<T>
@@ -31,19 +35,22 @@ where
             writer,
             storage,
             namespace: Bytes::from_static(b"default"),
+            command_tokens_buf: Vec::with_capacity(64),
         }
     }
 
-    fn frame_as_bytes_array(frame: BytesFrame) -> Vec<Bytes> {
+    fn frame_as_bytes_array(&mut self, frame: BytesFrame) {
+        self.command_tokens_buf.clear();
         match frame {
-            BytesFrame::Array { data, .. } => data
-                .iter()
-                .map(|b| match b {
-                    BytesFrame::SimpleString { data, .. } => data.clone(),
-                    BytesFrame::BlobString { data, .. } => data.clone(),
-                    _ => unreachable!(),
-                })
-                .collect(),
+            BytesFrame::Array { data, .. } => {
+                data.iter()
+                    .map(|b| match b {
+                        BytesFrame::SimpleString { data, .. } => data.clone(),
+                        BytesFrame::BlobString { data, .. } => data.clone(),
+                        _ => unreachable!(),
+                    })
+                    .collect_into(&mut self.command_tokens_buf);
+            }
             _ => unreachable!(),
         }
     }
@@ -52,29 +59,35 @@ where
         while let Some(frame) = self.reader.next().await {
             let frame = frame.unwrap();
             debug!("Received: {:?}", frame);
-            let command_tokens = Self::frame_as_bytes_array(frame);
-            let command_id: CommandId = match StringBytes::new(command_tokens[0].clone())
-                .as_utf8()
-                .parse()
-            {
-                Ok(id) => id,
-                Err(_) => {
-                    let _ = self
-                        .writer
-                        .send(BytesFrame::SimpleString {
-                            data: Bytes::from_static(b"Unimplemented"),
-                            attributes: None,
-                        })
-                        .await;
-                    continue;
-                }
-            };
-            let command = COMMANDS_TABLE.get(&command_id).unwrap();
-            let mut command_inst = command.new_instance();
-            command_inst.parse(command_tokens).unwrap();
-            let response = command_inst.execute(&self.storage, self.namespace.clone());
+            self.frame_as_bytes_array(frame);
+            let response = self.to_response(self.execute_command(&self.command_tokens_buf[..]));
             let res = self.writer.send(response).await;
             assert!(res.is_ok());
+        }
+    }
+    fn to_response(&self, response: Result<BytesFrame>) -> BytesFrame {
+        match response {
+            Ok(frame) => frame,
+            Err(e) => {
+                debug!("Error: {:?}", e);
+                (FrameKind::SimpleError, e.to_string()).try_into().unwrap()
+            }
+        }
+    }
+
+    fn execute_command(&self, command_tokens: &[Bytes]) -> Result<BytesFrame> {
+        if let Some(c) = command_tokens.first() {
+            let s = StringBytes::new(c.clone());
+            if let Some(command) = GLOBAL_COMMANDS_TABLE.get(s.as_utf8()) {
+                let mut command_inst = command.create_instance();
+                // Skip the first token, which is the command name
+                command_inst.parse(&command_tokens[1..]).unwrap();
+                Ok(command_inst.execute(&self.storage, self.namespace.clone())?)
+            } else {
+                UnknownCommandSnafu { cmd: s.as_utf8() }.fail()
+            }
+        } else {
+            UnknownCommandSnafu { cmd: "" }.fail()
         }
     }
 }
