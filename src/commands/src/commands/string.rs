@@ -101,7 +101,7 @@ impl CommandTypeInfo for Set {
         Self { args: None }
     }
 
-    command_type_stub! {"SET"}
+    command_type_stub! { id: "Set" }
 }
 
 pub struct Get {
@@ -134,7 +134,7 @@ impl CommandTypeInfo for Get {
         Self { key: Bytes::new() }
     }
 
-    command_type_stub! {"GET"}
+    command_type_stub! { id: "Get" }
 }
 
 register! {Set, Get}

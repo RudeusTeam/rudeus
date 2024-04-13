@@ -68,12 +68,20 @@ macro_rules! register {
     };
 }
 
+/// create a command type stub for a command
+///
+/// [`cmd_id`] will be converted to uppercase
 #[macro_export]
 macro_rules! command_type_stub {
-    ($cmd_id:literal) => {
-        fn command() -> &'static Command {
-            static STUB: Lazy<Command> = Lazy::new(|| Command::new_stub($cmd_id));
-            &STUB
+    (id: $cmd_id:literal) => {
+        paste::paste! {
+            fn command() -> &'static Command {
+                static STUB: Lazy<Command> =
+            Lazy::new(|| Command::new_stub(
+                            stringify!([< $cmd_id:upper >])
+                        ));
+                &STUB
+            }
         }
     };
 }
