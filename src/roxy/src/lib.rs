@@ -20,4 +20,3 @@ pub mod datatypes;
 pub mod error;
 pub mod metadata;
 pub mod storage;
-pub mod write_batch;
