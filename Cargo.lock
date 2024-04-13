@@ -33,6 +33,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d62b7694a562cdf5a74227903507c56ab2cc8bdd1f781ed5cb4cf9c9f810bfc"
 
 [[package]]
+name = "async-trait"
+version = "0.1.80"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6fa2087f2753a7da8cc1c0dbfcf89579dd57458e36769de5ac750b4671737ca"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.55",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -185,14 +196,17 @@ dependencies = [
 name = "commands"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "bytes",
  "common-base",
+ "common-runtime",
  "once_cell",
  "paste",
  "redis-protocol",
  "roxy",
  "snafu",
  "strum",
+ "tokio",
 ]
 
 [[package]]

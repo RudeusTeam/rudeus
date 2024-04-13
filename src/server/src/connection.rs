@@ -60,7 +60,8 @@ where
             let frame = frame.unwrap();
             debug!("Received: {:?}", frame);
             self.frame_as_bytes_array(frame);
-            let response = self.to_response(self.execute_command(&self.command_tokens_buf[..]));
+            let response =
+                self.to_response(self.execute_command(&self.command_tokens_buf[..]).await);
             let res = self.writer.send(response).await;
             assert!(res.is_ok());
         }
@@ -75,14 +76,16 @@ where
         }
     }
 
-    fn execute_command(&self, command_tokens: &[Bytes]) -> Result<BytesFrame> {
+    async fn execute_command(&self, command_tokens: &[Bytes]) -> Result<BytesFrame> {
         if let Some(c) = command_tokens.first() {
             let s = StringBytes::new(c.clone());
             if let Some(command) = GLOBAL_COMMANDS_TABLE.get(s.as_utf8()) {
                 let mut command_inst = command.create_instance();
                 // Skip the first token, which is the command name
                 command_inst.parse(&command_tokens[1..]).unwrap();
-                Ok(command_inst.execute(&self.storage, self.namespace.clone())?)
+                Ok(command_inst
+                    .execute(self.storage.clone(), self.namespace.clone())
+                    .await?)
             } else {
                 UnknownCommandSnafu { cmd: s.as_utf8() }.fail()
             }

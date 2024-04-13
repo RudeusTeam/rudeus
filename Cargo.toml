@@ -9,6 +9,7 @@ resolver = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
+async-trait    = "0.1"
 binrw          = "0.13"
 bytes          = { version = "1.6", features = ["serde"] }
 derive_builder = "0.20"

@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Once;
+use std::sync::{Arc, Once};
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use common_base::bytes::StringBytes;
+use common_runtime::global_runtime::{spawn_blocking_read, spawn_blocking_write};
 use once_cell::sync::Lazy;
 use redis_protocol::resp3::types::{BytesFrame, FrameKind};
 use roxy::datatypes::string::{RedisString, StringSetArgs, StringSetArgsBuilder, StringSetType};
 use roxy::storage::Storage;
 use snafu::ResultExt;
+use tokio::sync::oneshot::{self, Sender};
 
 use super::{Command, CommandInstance, CommandTypeInfo, GlobalCommandTable};
 use crate::error::{FailInStorageSnafu, InvalidCmdSyntaxSnafu, Result};
@@ -40,6 +43,7 @@ pub struct Set {
     args: Option<SetArgs>,
 }
 
+#[async_trait]
 impl CommandInstance for Set {
     fn parse(&mut self, input: &[Bytes]) -> Result<()> {
         let mut set_args_builder = StringSetArgsBuilder::default();
@@ -81,18 +85,33 @@ impl CommandInstance for Set {
         Ok(())
     }
 
-    fn execute(&mut self, storage: &Storage, namespace: Bytes) -> Result<BytesFrame> {
-        let db = RedisString::new(storage, namespace.into());
+    async fn execute(&mut self, storage: Arc<Storage>, namespace: Bytes) -> Result<BytesFrame> {
+        let (tx, rx) = oneshot::channel();
         let args = self.args.take().unwrap();
-        // TODO: handle ttl
+        spawn_blocking_write(move || Self::do_set(storage, namespace, args, tx));
+        rx.await.unwrap()
+    }
+}
 
-        db.set(args.key, args.value, &args.set_args)
+impl Set {
+    fn do_set(
+        storage: Arc<Storage>,
+        namespace: Bytes,
+        args: SetArgs,
+        tx: Sender<Result<BytesFrame>>,
+    ) {
+        let db = RedisString::new(&storage, namespace.into());
+        // TODO: handle ttl
+        let r = db
+            .set(args.key, args.value, &args.set_args)
             .map(|opt_old| match opt_old {
                 Some(old) => (FrameKind::BlobString, old).try_into().unwrap(),
                 None if args.set_args.get => (FrameKind::SimpleString, "OK").try_into().unwrap(),
                 None => BytesFrame::Null,
             })
-            .context(FailInStorageSnafu { cmd_id: Self::id() })
+            .context(FailInStorageSnafu { cmd_id: Self::id() });
+        let send = tx.send(r);
+        assert!(send.is_ok())
     }
 }
 
@@ -108,6 +127,7 @@ pub struct Get {
     key: Bytes,
 }
 
+#[async_trait]
 impl CommandInstance for Get {
     fn parse(&mut self, input: &[Bytes]) -> Result<()> {
         let key = key()
@@ -117,15 +137,23 @@ impl CommandInstance for Get {
         Ok(())
     }
 
-    fn execute(&mut self, storage: &Storage, namespace: Bytes) -> Result<BytesFrame> {
-        RedisString::new(storage, namespace.into())
-            .get(self.key.clone())
-            .map(|opt_value| {
-                opt_value
-                    .map(|value| (FrameKind::BlobString, value).try_into().unwrap())
-                    .unwrap_or_else(|| BytesFrame::Null)
-            })
-            .context(FailInStorageSnafu { cmd_id: Self::id() })
+    async fn execute(&mut self, storage: Arc<Storage>, namespace: Bytes) -> Result<BytesFrame> {
+        let (tx, rx) = oneshot::channel();
+        let key = self.key.clone();
+        spawn_blocking_read(move || {
+            let storage = storage;
+            tx.send(
+                RedisString::new(&storage, namespace.into())
+                    .get(key)
+                    .map(|opt_value| {
+                        opt_value
+                            .map(|value| (FrameKind::BlobString, value).try_into().unwrap())
+                            .unwrap_or_else(|| BytesFrame::Null)
+                    })
+                    .context(FailInStorageSnafu { cmd_id: Self::id() }),
+            )
+        });
+        rx.await.unwrap()
     }
 }
 
@@ -136,6 +164,8 @@ impl CommandTypeInfo for Get {
 
     command_type_stub! { id: "Get" }
 }
+
+impl Get {}
 
 register! {Set, Get}
 

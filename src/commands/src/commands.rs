@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use once_cell::sync::Lazy;
 use redis_protocol::resp3::types::BytesFrame;
@@ -131,10 +133,11 @@ impl Command {
     }
 }
 
+#[async_trait]
 pub trait CommandInstance: Send {
     /// Parse command arguments representing in an array of Bytes, since client can only send RESP3 Array frames
     fn parse(&mut self, input: &[Bytes]) -> Result<()>;
-    fn execute(&mut self, storage: &Storage, namespace: Bytes) -> Result<BytesFrame>;
+    async fn execute(&mut self, storage: Arc<Storage>, namespace: Bytes) -> Result<BytesFrame>;
 }
 
 pub trait CommandTypeInfo: CommandInstance + Sized + 'static {
