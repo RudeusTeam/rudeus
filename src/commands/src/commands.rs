@@ -47,10 +47,14 @@ impl GlobalCommandTable {
 }
 
 macro_rules! register_mod {
-    ($t:ident, $($mod:ident),*) => {
-        $(
-            $mod::register(&mut $t)
-        );*
+    ($($mod:ident),*) => {
+        Lazy::new(|| {
+            let mut table = Default::default();
+                $(
+                    $mod::register(&mut table);
+                );*
+            table
+        })
     };
 }
 
@@ -86,11 +90,7 @@ macro_rules! command_type_stub {
     };
 }
 
-pub static GLOBAL_COMMANDS_TABLE: Lazy<GlobalCommandTable> = Lazy::new(|| {
-    let mut table = Default::default();
-    register_mod!(table, string);
-    table
-});
+pub static GLOBAL_COMMANDS_TABLE: Lazy<GlobalCommandTable> = register_mod! {string};
 
 /// Mapping relationship between command id and command instance
 /// [`CommandId`] => [`Command`] --create--> [`CommandInstance`]
