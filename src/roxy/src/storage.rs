@@ -20,7 +20,7 @@ use common_base::lock_pool;
 use common_base::lock_pool::LockPool;
 use common_telemetry::log::info;
 use parking_lot::RwLock;
-use rocksdb::{ReadOptions, WriteBatch, WriteOptions, DB};
+use rocksdb::{AsColumnFamilyRef, ReadOptions, WriteBatch, WriteOptions, DB};
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 use strum::VariantArray;
@@ -252,6 +252,17 @@ impl Storage {
 
     pub(crate) fn db(&self) -> &DB {
         unsafe { self.db.assume_init_ref() }
+    }
+
+    pub fn delete(
+        &self,
+        write_options: &WriteOptions,
+        cf: impl AsColumnFamilyRef,
+        key: impl AsRef<[u8]>,
+    ) -> Result<()> {
+        let mut batch = WriteBatch::default();
+        batch.delete_cf(&cf, key);
+        self.write(write_options, batch)
     }
 }
 

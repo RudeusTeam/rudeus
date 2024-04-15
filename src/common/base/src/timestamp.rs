@@ -7,5 +7,5 @@ fn timestamp() -> Duration {
 }
 
 pub fn timestamp_ms() -> u64 {
-    timestamp().as_micros() as u64
+    timestamp().as_millis() as u64
 }

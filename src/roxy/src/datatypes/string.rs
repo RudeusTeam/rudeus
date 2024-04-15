@@ -16,7 +16,6 @@ use std::io::Write;
 
 use bytes::{BufMut, BytesMut};
 use common_base::bytes::Bytes;
-use common_base::timestamp::timestamp_ms;
 use derive_builder::Builder;
 use rocksdb::WriteOptions;
 use snafu::ResultExt;
@@ -44,7 +43,7 @@ pub enum StringSetType {
 #[derive(Builder, Clone, Debug)]
 pub struct StringSetArgs {
     #[builder(default)]
-    pub ttl: u64,
+    pub expire: Option<u64>,
     #[builder(default)]
     pub set_type: StringSetType,
     #[builder(default)]
@@ -120,26 +119,25 @@ impl<'s> RedisString<'s> {
     }
 
     fn get_value_and_expire(&self, ns_key: Bytes) -> Result<Option<(Bytes, u64)>> {
-        let raw_value = self.get_raw_value(ns_key)?;
-        if let Some(raw_value) = raw_value {
-            let offset = Metadata::offset_after_expire();
-            let value = raw_value.slice(offset..);
-            let metadata = Metadata::decode_from(&mut raw_value.slice(..offset).reader())?;
-            Ok(Some((value, metadata.expire())))
+        Ok(self
+            .get_metadata_and_raw_value(ns_key)?
+            .map(|(meta, value)| (value, meta.expire())))
+    }
+
+    /// if the key is not exist, return `Ok(None)`
+    ///
+    /// if the key is expired, return `Ok(None)`
+    ///
+    /// if the related value is invalid, return an error
+    fn get_metadata_and_raw_value(&self, ns_key: Bytes) -> Result<Option<(Metadata, Bytes)>> {
+        let raw_data = self.database.get_raw_data(GetOptions::new(), ns_key)?;
+        if let Some(raw_data) = raw_data {
+            Ok(self
+                .database
+                .validate_metadata(&[RedisType::String], raw_data)?)
         } else {
             Ok(None)
         }
-    }
-
-    fn get_raw_value(&self, ns_key: Bytes) -> Result<Option<Bytes>> {
-        let raw_metadata = self.database.get_raw_metadata(GetOptions::new(), ns_key)?;
-        let raw_value = raw_metadata.clone();
-        if let Some(raw_metadata) = raw_metadata {
-            let _ = self
-                .database
-                .parse_metadata(&[RedisType::String], raw_metadata)?;
-        }
-        Ok(raw_value)
     }
 
     pub fn get(&self, user_key: impl Into<Bytes>) -> Result<Option<Bytes>> {
@@ -185,9 +183,8 @@ impl<'s> RedisString<'s> {
         if args.keep_ttl {
             expire = old_expire;
         }
-        if args.ttl > 0 {
-            let now = timestamp_ms();
-            expire = now + args.ttl;
+        if let Some(arg_expire) = args.expire {
+            expire = arg_expire;
         }
 
         let mut new_metadata = Metadata::new(RedisType::String, false);
@@ -204,6 +201,10 @@ impl<'s> RedisString<'s> {
         self.update_raw_value(ns_key, raw_value)?;
 
         Ok(if args.get { old_value } else { None })
+    }
+
+    pub fn db(&self) -> &Roxy {
+        &self.database
     }
 
     fn default_write_opts(&self) -> WriteOptions {
@@ -234,7 +235,7 @@ mod tests {
         let user_key = Bytes::from("user_key".as_bytes());
         let value = Bytes::from("value".as_bytes());
         let args = StringSetArgsBuilder::default()
-            .ttl(0)
+            .expire(None)
             .get(true)
             .build()
             .unwrap();

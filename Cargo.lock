@@ -202,6 +202,7 @@ dependencies = [
  "binrw",
  "bytes",
  "parking_lot",
+ "redis-protocol",
  "serde",
 ]
 

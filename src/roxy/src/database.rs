@@ -15,8 +15,10 @@
 use common_base::bytes::Bytes;
 use common_base::lock_pool;
 use rocksdb::{AsColumnFamilyRef, WriteBatch, WriteOptions};
+use snafu::OptionExt;
+use strum::VariantArray;
 
-use crate::error::{DatatypeMismatchedSnafu, KeyExpiredSnafu, Result};
+use crate::error::{DatatypeMismatchedSnafu, KeyExpiredSnafu, KeyNotFoundSnafu, Result};
 use crate::metadata::{self, Metadata, RedisType};
 use crate::storage::{ColumnFamilyId, Storage};
 
@@ -53,9 +55,9 @@ pub trait Database {
         types: &[RedisType],
         ns_key: Bytes,
     ) -> Result<Option<(metadata::Metadata, Bytes)>> {
-        let raw_metadata = self.get_raw_metadata(options, ns_key)?;
-        if let Some(raw_metadata) = raw_metadata {
-            Ok(Some(self.parse_metadata(types, raw_metadata)?))
+        let raw_data = self.get_raw_data(options, ns_key)?;
+        if let Some(raw_data) = raw_data {
+            Ok(self.validate_metadata(types, raw_data)?)
         } else {
             Ok(None)
         }
@@ -65,16 +67,23 @@ pub trait Database {
     /// "raw metadata" from the storage engine without parsing
     /// it to [`Metadata`] type.
     ///
-    fn get_raw_metadata(&self, options: GetOptions, ns_key: Bytes) -> Result<Option<Bytes>>;
+    fn get_raw_data(&self, options: GetOptions, ns_key: Bytes) -> Result<Option<Bytes>>;
 
     /// [`parse_metadata`] parse the [`Metadata`] from input bytes and return
     /// the rest part of the input bytes.
-    fn parse_metadata(&self, types: &[RedisType], input: Bytes) -> Result<(Metadata, Bytes)> {
+    /// if the input bytes is not a valid metadata, it will return an error.
+    /// if the key is expired, it will return None.
+    fn validate_metadata(
+        &self,
+        types: &[RedisType],
+        input: Bytes,
+    ) -> Result<Option<(Metadata, Bytes)>> {
         let mut reader = input.reader();
         let metadata = Metadata::decode_from(&mut reader)?;
         let rest = reader.into_inner();
+
         if metadata.expired() {
-            return KeyExpiredSnafu.fail();
+            return Ok(None);
         }
 
         if !types.contains(&metadata.datatype()) {
@@ -84,7 +93,7 @@ pub trait Database {
         if metadata.size() == 0 && !metadata.datatype().is_emptyable() {
             return DatatypeMismatchedSnafu.fail();
         }
-        Ok((metadata, rest))
+        Ok(Some((metadata, rest)))
     }
 
     fn lock_key(&self, key: Bytes) -> Self::KeyLockGuard<'_>;
@@ -94,6 +103,8 @@ pub trait Database {
     fn get_cf_ref(&self) -> impl AsColumnFamilyRef;
 
     fn write(&self, opts: &WriteOptions, batch: WriteBatch) -> Result<()>;
+
+    fn delete(&self, key: Bytes) -> Result<()>;
 }
 
 /// [`Roxy`] is a wrapper of storage engine, it provides
@@ -123,7 +134,7 @@ impl<'s> Database for Roxy<'s> {
     type KeyLockGuard<'a> = lock_pool::MutexGuard<'a>
     where Self: 'a;
 
-    fn get_raw_metadata(&self, options: GetOptions, ns_key: Bytes) -> Result<Option<Bytes>> {
+    fn get_raw_data(&self, options: GetOptions, ns_key: Bytes) -> Result<Option<Bytes>> {
         let mut opts = rocksdb::ReadOptions::default();
         if options.with_snapshot {
             opts.set_snapshot(&self.storage.db().snapshot());
@@ -149,6 +160,20 @@ impl<'s> Database for Roxy<'s> {
 
     fn write(&self, opts: &WriteOptions, updates: WriteBatch) -> Result<()> {
         self.storage.write(opts, updates)
+    }
+
+    fn delete(&self, key: Bytes) -> Result<()> {
+        let ns_key = self.encode_namespace_prefix(key);
+        let _guard = self.lock_key(ns_key.clone());
+        let metadata = self
+            .get_metadata(GetOptions::default(), RedisType::VARIANTS, ns_key.clone())?
+            .context(KeyNotFoundSnafu)?;
+        if metadata.expired() {
+            return KeyExpiredSnafu.fail();
+        }
+
+        self.storage
+            .delete(&WriteOptions::default(), self.get_cf_ref(), ns_key)
     }
 }
 
