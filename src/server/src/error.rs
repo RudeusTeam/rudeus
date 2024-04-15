@@ -21,6 +21,18 @@ pub enum Error {
     UnknownCommand { cmd: String },
     #[snafu(transparent)]
     ExecuteError { source: commands::error::Error },
+    #[snafu(display("Failed to bind to address '{}': {}", bind, source))]
+    BindError {
+        bind: String,
+        source: std::io::Error,
+    },
+    #[snafu(display("Another instance is already Instaunning"))]
+    InstanceAlreadyExists { source: std::io::Error },
+    #[snafu(display("Failed to acquire process file lock: '{}'", path))]
+    AcquireFileLock {
+        source: std::io::Error,
+        path: String,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

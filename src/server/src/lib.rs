@@ -16,4 +16,5 @@
 
 pub mod connection;
 pub mod error;
+pub mod rudeus_lock;
 pub mod server;

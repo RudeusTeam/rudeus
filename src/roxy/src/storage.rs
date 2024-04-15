@@ -55,6 +55,12 @@ pub struct StorageConfig {
     rocksdb: RocksDBConfig,
 }
 
+impl StorageConfig {
+    pub fn dbpath(&self) -> &str {
+        &self.dbpath
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, VariantArray, strum::IntoStaticStr, strum::Display,
 )]

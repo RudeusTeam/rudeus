@@ -12,6 +12,7 @@ resolver = "2"
 binrw          = "0.13"
 bytes          = { version = "1.6", features = ["serde"] }
 derive_builder = "0.20"
+fs4            = { version = "0.8", features = ["sync"] }
 futures        = { version = "0.3", features = ["std"] }
 once_cell      = "1.19"
 parking_lot    = "0.12"

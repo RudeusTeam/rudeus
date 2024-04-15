@@ -11,6 +11,7 @@ path = "src/rudeus.rs"
 
 [dependencies]
 bytes.workspace          = true
+fs4.workspace            = true
 futures.workspace        = true
 redis-protocol.workspace = true
 roxy.workspace           = true

@@ -19,6 +19,7 @@ use common_runtime::global_runtime::{block_on_network, init_global_runtimes};
 use common_telemetry::log::{self, LoggingOption};
 use roxy::storage::{Storage, StorageConfig};
 use serde::{Deserialize, Serialize};
+use server::rudeus_lock::try_lock_rudeus;
 use server::server::{Server, ServerConfig};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -35,11 +36,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let config: RudeusConfig = toml::from_str(&config_str)?;
     let _log_workers = log::init(&config.logging);
+    let _rudeus_lock = try_lock_rudeus(config.storage.dbpath())?;
 
     let mut storage = Storage::try_new(config.storage)?;
     storage.open(roxy::storage::OpenMode::Default)?;
     let server = Server::new(Arc::new(storage), config.server);
 
-    block_on_network(server.start());
+    block_on_network(server.start())?;
     Ok(())
 }
