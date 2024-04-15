@@ -49,9 +49,9 @@ pub struct StorageConfig {
     #[serde(default)]
     secondary_path: String,
     #[serde(default)]
-    _open_mode: OpenMode,
+    open_mode: OpenMode,
     #[serde(default)]
-    _backup_path: Option<String>,
+    backup_path: Option<String>,
     rocksdb: RocksDBConfig,
 }
 
@@ -284,8 +284,8 @@ pub fn setup_test_storage_for_ut() -> Storage {
     let storage_config = StorageConfig {
         dbpath,
         secondary_path,
-        _open_mode: OpenMode::Default,
-        _backup_path: None,
+        open_mode: OpenMode::Default,
+        backup_path: None,
         rocksdb: RocksDBConfig { block_size: 4096 },
     };
     let mut storage = Storage::try_new(storage_config).unwrap();
