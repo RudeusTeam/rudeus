@@ -1,8 +1,10 @@
 name: Rust Build and Test
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
-    branches: [ "*" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
     paths:
