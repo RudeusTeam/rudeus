@@ -16,8 +16,11 @@ use std::sync::Once;
 
 use bytes::Bytes;
 use common_base::bytes::StringBytes;
+use common_base::resp3;
+use common_base::timestamp::timestamp_ms;
 use once_cell::sync::Lazy;
 use redis_protocol::resp3::types::{BytesFrame, FrameKind};
+use roxy::database::Database;
 use roxy::datatypes::string::{RedisString, StringSetArgs, StringSetArgsBuilder, StringSetType};
 use roxy::storage::Storage;
 use snafu::ResultExt;
@@ -25,7 +28,7 @@ use snafu::ResultExt;
 use super::{Command, CommandInstance, CommandTypeInfo, GlobalCommandTable};
 use crate::error::{FailInStorageSnafu, InvalidCmdSyntaxSnafu, Result};
 use crate::parser::{
-    chain, key, keyword, optional, string, ttl, value_of_type, Parser, TTLOption, Tokens,
+    chain, expire, key, keyword, optional, string, value_of_type, ExpireOption, Parser, Tokens,
 };
 use crate::{command_type_stub, register};
 
@@ -61,11 +64,11 @@ impl CommandInstance for Set {
             .is_some();
         set_args_builder.get(get);
 
-        let ttl = optional(ttl()).parse(&mut tokens).unwrap();
-        if let Some(ttl) = ttl {
-            match ttl {
-                TTLOption::TTL(ttl) => set_args_builder.ttl(ttl),
-                TTLOption::KeepTTL => set_args_builder.keep_ttl(true),
+        let expire = optional(expire()).parse(&mut tokens).unwrap();
+        if let Some(expire) = expire {
+            match expire {
+                ExpireOption::Expire(expire) => set_args_builder.expire(Some(expire)),
+                ExpireOption::KeepTTL => set_args_builder.keep_ttl(true),
             };
         }
 
@@ -84,12 +87,21 @@ impl CommandInstance for Set {
     fn execute(&mut self, storage: &Storage, namespace: Bytes) -> Result<BytesFrame> {
         let db = RedisString::new(storage, namespace.into());
         let args = self.args.take().unwrap();
-        // TODO: handle ttl
+        if args
+            .set_args
+            .expire
+            .is_some_and(|expire| expire < timestamp_ms())
+        {
+            db.db()
+                .delete(args.key.clone().into())
+                .context(FailInStorageSnafu { cmd_id: Self::id() })?;
+            return Ok(resp3::ok());
+        }
 
         db.set(args.key, args.value, &args.set_args)
             .map(|opt_old| match opt_old {
                 Some(old) => (FrameKind::BlobString, old).try_into().unwrap(),
-                None if args.set_args.get => (FrameKind::SimpleString, "OK").try_into().unwrap(),
+                None if args.set_args.get => resp3::ok(),
                 None => BytesFrame::Null,
             })
             .context(FailInStorageSnafu { cmd_id: Self::id() })

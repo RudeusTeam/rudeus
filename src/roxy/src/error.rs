@@ -58,8 +58,8 @@ pub enum Error {
     #[snafu(display("Datatype mismatched"))]
     DatatypeMismatched,
 
-    #[snafu(display("No element found for non-emptyable datatype"))]
-    NoElementFound,
+    #[snafu(display("Key not found in rocksdb"))]
+    KeyNotFound,
     #[snafu(display("Fail to write to rocksdb"))]
     WriteToRocksDB { source: rocksdb::Error },
     #[snafu(display("Fail to get from rocksdb"))]

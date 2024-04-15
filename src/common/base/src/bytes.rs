@@ -103,6 +103,12 @@ impl PartialEq<Bytes> for [u8] {
     }
 }
 
+impl AsRef<[u8]> for Bytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 pub struct BytesReader(NoSeek<Reader<bytes::Bytes>>);
 
 impl std::io::Read for BytesReader {

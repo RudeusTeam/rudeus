@@ -12,7 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod bytes;
-pub mod lock_pool;
-pub mod resp3;
-pub mod timestamp;
+use bytes::Bytes;
+use redis_protocol::resp3::types::BytesFrame;
+
+/// Create a simple string response with "OK".
+pub fn ok() -> BytesFrame {
+    static OK: bytes::Bytes = Bytes::from_static(b"OK");
+    BytesFrame::SimpleString {
+        data: OK.clone(),
+        attributes: None,
+    }
+}

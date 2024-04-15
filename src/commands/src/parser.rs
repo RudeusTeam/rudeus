@@ -52,6 +52,8 @@ pub enum ParseError {
         source: Box<ParseError>,
         ttl_type: String,
     },
+    #[snafu(display("out of numeric range"))]
+    OutOfNumericRange,
 }
 pub struct Tokens<'a> {
     tokens: &'a [Token],
@@ -118,6 +120,7 @@ where
 }
 
 mod operand {
+    use std::ops::Range;
     use std::rc::Rc;
     use std::str::FromStr;
 
@@ -126,8 +129,8 @@ mod operand {
     use snafu::{OptionExt as _, ResultExt};
 
     use super::{
-        alt, optional, InvalidValueOfTypeSnafu, MismatchedKeywordSnafu, MissKeySnafu, Parser,
-        TTLMissTimeSnafu, Tokens,
+        alt, optional, InvalidValueOfTypeSnafu, MismatchedKeywordSnafu, MissKeySnafu,
+        OutOfNumericRangeSnafu, Parser, TTLMissTimeSnafu, Tokens,
     };
 
     /// expect a keyword(ignore case)
@@ -175,6 +178,18 @@ mod operand {
         }
     }
 
+    pub fn number<'a, N: FromStr + PartialOrd + Copy>(
+        rng: Range<N>,
+    ) -> impl Parser<'a, Output = N> {
+        move |s: &mut Tokens<'a>| {
+            let value = value_of_type::<N>().parse(s)?;
+            if !rng.contains(&value) {
+                OutOfNumericRangeSnafu.fail()?;
+            }
+            Ok(value)
+        }
+    }
+
     pub fn key<'a>() -> impl Parser<'a, Output = Bytes> {
         move |s: &mut Tokens<'a>| match s.peek() {
             Some(first) => s.yield_value(first.clone().into()),
@@ -198,11 +213,11 @@ mod operand {
         }
     }
 
-    pub enum TTLOption {
-        TTL(u64),
+    pub enum ExpireOption {
+        Expire(u64),
         KeepTTL,
     }
-    pub fn ttl<'a>() -> impl Parser<'a, Output = TTLOption> {
+    pub fn expire<'a>() -> impl Parser<'a, Output = ExpireOption> {
         move |s: &mut Tokens<'a>| {
             let ttl_type = optional(alt((
                 keyword("EX"),
@@ -214,14 +229,16 @@ mod operand {
             .parse(s)
             .unwrap();
             if let Some(ttl_type) = ttl_type {
-                let ttl = value_of_type::<u64>().parse(s).context(TTLMissTimeSnafu {
-                    ttl_type: ttl_type.clone(),
-                })?;
+                let ttl = number::<u64>(1u64..u64::MAX)
+                    .parse(s)
+                    .context(TTLMissTimeSnafu {
+                        ttl_type: ttl_type.clone(),
+                    })?;
                 Ok(match ttl_type.as_utf8() {
-                    "EX" => TTLOption::TTL(ttl * 1000),
-                    "PX" => TTLOption::TTL(ttl),
-                    "PXAT" => TTLOption::TTL(ttl - timestamp_ms()),
-                    "EXAT" => TTLOption::TTL(ttl * 1000 - timestamp_ms()),
+                    "EX" => ExpireOption::Expire(ttl * 1000 + timestamp_ms()),
+                    "EXAT" => ExpireOption::Expire(ttl * 1000),
+                    "PX" => ExpireOption::Expire(ttl + timestamp_ms()),
+                    "PXAT" => ExpireOption::Expire(ttl),
                     _ => unreachable!(),
                 })
             } else {
